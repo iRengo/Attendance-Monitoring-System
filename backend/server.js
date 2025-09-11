@@ -45,13 +45,13 @@ app.post("/api/login", async (req, res) => {
         return res.json({
           success: true,
           message: "Login successful",
-          user: { id: user.id, username: user[t.idField], role: t.role },
-        });
-      }
-    }
+          user: { id: user.id, username: user[t.idField], role: t.role },                                       
+        });   
+      }  
+    }   
 
-    // No match in either table
-    res.status(401).json({ success: false, message: "Invalid credentials" });
+    // No match in either table 
+    res.status(401).json({ success: false, message: "Invalid credentials" });  
 
   } catch (err) {
     console.error("Database error:", err);
@@ -59,7 +59,7 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// Start server
+// Start server                                                    
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
