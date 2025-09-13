@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 export default function TeacherPage() {
-  const [activeTab, setActiveTab] = useState("Monitor Attendance");
+  const [activeTab, setActiveTab] = useState("Dashboard");
 
   const students = [
     { name: "Navarro, Christian Joseph", status: "Present", date: "08/09/25" },
@@ -15,6 +15,43 @@ export default function TeacherPage() {
     { name: "Villar, Francis Gabriel", status: "Present", date: "08/09/25" },
     { name: "Santos, Katherine Louise", status: "Present", date: "08/09/25" },
   ];
+
+  // ✅ Schedule state
+  const [schedules, setSchedules] = useState([
+    { subject: "", day: "Monday", time: "7:30 AM – 8:30 AM" },
+    { subject: "", day: "Tuesday", time: "9:15 AM – 10:15 AM" },
+    { subject: "", day: "Wednesday", time: "10:45 AM – 11:45 AM" },
+    { subject: "", day: "Thursday", time: "1:00 PM – 2:00 PM" },
+    { subject: "", day: "Friday", time: "2:15 PM – 3:15 PM" },
+    { subject: "", day: "Monday", time: "3:30 PM – 4:30 PM" },
+    { subject: "", day: "Tuesday", time: "5:00 PM – 6:00 PM" },
+    { subject: "", day: "Wednesday", time: "6:30 PM – 7:30 PM" },
+  ]);
+
+  const [editIndex, setEditIndex] = useState(null);
+  const [tempData, setTempData] = useState({ subject: "", day: "", time: "" });
+
+  const handleEdit = (index) => {
+    setEditIndex(index);
+    setTempData(schedules[index]);
+  };
+
+  const handleCancel = () => {
+    setEditIndex(null);
+    setTempData({ subject: "", day: "", time: "" });
+  };
+
+  const handleSave = (index) => {
+    const updatedSchedules = [...schedules];
+    updatedSchedules[index] = tempData;
+    setSchedules(updatedSchedules);
+    setEditIndex(null);
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setTempData({ ...tempData, [name]: value });
+  };
 
   return (
     <>
@@ -43,13 +80,12 @@ export default function TeacherPage() {
         }
         .layout {
           display: flex;
-          height: calc(100vh - 50px); /* minus header height */
+          height: calc(100vh - 50px);
         }
         /* Sidebar */
         .sidebar {
           width: 220px;
           background: #D9D9D9;
-          color: white;
           padding-top: 20px;
           display: flex;
           flex-direction: column;
@@ -91,6 +127,8 @@ export default function TeacherPage() {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 15px;
+          flex-wrap: wrap;
+          gap: 10px;
         }
         .card-header h2 {
           font-size: 18px;
@@ -102,15 +140,21 @@ export default function TeacherPage() {
           border-radius: 4px;
           cursor: pointer;
         }
+        .table-container {
+          width: 100%;
+          overflow-x: auto;
+        }
         table {
           width: 100%;
           border-collapse: collapse;
+          min-width: 600px;
         }
         th, td {
           padding: 10px;
           border: 1px solid #ddd;
           text-align: left;
           font-size: 14px;
+          white-space: nowrap;
         }
         th {
           background: #f1f1f1;
@@ -150,6 +194,89 @@ export default function TeacherPage() {
           font-size: 16px;
           padding: 50px;
         }
+        .edit-btn {
+          background: green;
+          color: white;
+          border: none;
+          padding: 5px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .save-btn {
+          background: #247FB8;
+          color: white;
+          border: none;
+          padding: 5px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-right: 5px;
+        }
+        .cancel-btn {
+          background: #ccc;
+          color: black;
+          border: none;
+          padding: 5px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        
+        input, select {
+        padding: 5px;
+        font-size: 14px;
+        width: 100%;
+        box-sizing: border-box; /* ✅ Prevents overlap */
+        border: 1px solid #ccc; /* Keep normal border */
+        border-radius: 4px;
+      }
+
+      input:focus, select:focus {
+        border: 1px solid #247FB8; /* Highlight on focus */
+        outline: none;
+      }
+
+
+
+        /* ✅ Responsive Design */
+        @media (max-width: 992px) {
+          .layout {
+            flex-direction: column;
+          }
+          .sidebar {
+            width: 100%;
+            flex-direction: row;
+            overflow-x: auto;
+          }
+          .sidebar button {
+            flex: 1;
+            text-align: center;
+          }
+        }
+        @media (max-width: 600px) {
+          .header {
+            background: #247FB8;
+            color: white;
+            padding: 15px 20px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between; /* ✅ Always keep Log Out on the right */
+            align-items: center;
+            flex-wrap: nowrap; /* Prevent stacking */
+          }
+
+          @media (max-width: 600px) {
+            .header {
+              flex-direction: row;
+              justify-content: space-between;
+            }
+          }
+          .card-header {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          table {
+            font-size: 12px;
+          }
+        }
       `}</style>
 
       {/* Header */}
@@ -181,32 +308,107 @@ export default function TeacherPage() {
                 <h2>Monitor Student Attendance</h2>
                 <button>➕ Add</button>
               </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Student Name</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map((s, i) => (
-                    <tr key={i}>
-                      <td>{s.name}</td>
-                      <td className={s.status === "Present" ? "status-present" : "status-absent"}>
-                        {s.status}
-                      </td>
-                      <td>{s.date}</td>
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Student Name</th>
+                      <th>Status</th>
+                      <th>Date</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {students.map((s, i) => (
+                      <tr key={i}>
+                        <td>{s.name}</td>
+                        <td className={s.status === "Present" ? "status-present" : "status-absent"}>
+                          {s.status}
+                        </td>
+                        <td>{s.date}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <div className="pagination">
                 <button disabled>Prev</button>
                 <button className="active">1</button>
                 <button>2</button>
                 <button>3</button>
                 <button>Next</button>
+              </div>
+            </div>
+          ) : activeTab === "Update Schedule" ? (
+            <div className="card">
+              <div className="card-header">
+                <h2>Update Class Schedule</h2>
+                <button>Add New Schedule</button>
+              </div>
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Subject</th>
+                      <th>Day</th>
+                      <th>Time</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {schedules.map((schedule, i) => (
+                      <tr key={i}>
+                        {editIndex === i ? (
+                          <>
+                            <td>
+                              <input
+                                type="text"
+                                name="subject"
+                                value={tempData.subject}
+                                onChange={handleChange}
+                                placeholder="Subject"
+                              />
+                            </td>
+                            <td>
+                              <select
+                                name="day"
+                                value={tempData.day}
+                                onChange={handleChange}
+                              >
+                                <option>Monday</option>
+                                <option>Tuesday</option>
+                                <option>Wednesday</option>
+                                <option>Thursday</option>
+                                <option>Friday</option>
+                              </select>
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                name="time"
+                                value={tempData.time}
+                                onChange={handleChange}
+                                placeholder="Time"
+                              />
+                            </td>
+                            <td>
+                              <button className="save-btn" onClick={() => handleSave(i)}>Save</button>
+                              <button className="cancel-btn" onClick={handleCancel}>Cancel</button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td>{schedule.subject}</td>
+                            <td>{schedule.day}</td>
+                            <td>{schedule.time}</td>
+                            <td>
+                              <button className="edit-btn" onClick={() => handleEdit(i)}>Edit</button>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           ) : (
