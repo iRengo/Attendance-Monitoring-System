@@ -93,6 +93,7 @@ export default function TeacherPage() {
         .sidebar button {
           padding: 15px 20px;
           border: none;
+          border-bottom: 2px solid #b4b4b4ff;
           background: none;
           color: black;
           text-align: left;
@@ -102,13 +103,13 @@ export default function TeacherPage() {
         }
         .sidebar button:hover {
           background: #a7a7a7ff;
-          border-radius: 10px;
+         
         }
         .sidebar .active {
           background: #247FB8;
           font-weight: bold;
           color: white;
-          border-radius: 10px;
+      
         }
         /* Main content */
         .content {
