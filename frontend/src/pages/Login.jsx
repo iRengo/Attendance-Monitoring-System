@@ -70,7 +70,7 @@ export default function Login() {
 
         {/* Main Login Card */}
         <div className="flex-1 flex items-center justify-center">
-          <div className="bg-white border-2 border-[#5F75AF] rounded-md p-8 w-full max-w-sm shadow-none">
+          <div className="bg-white border-1 border-[#5F75AF] rounded-md p-8 w-full max-w-sm shadow-lg">
             <h2 className="text-xl font-bold text-center mb-2 text-[#5F75AF]">
               Attendance Monitoring Portal
             </h2>
