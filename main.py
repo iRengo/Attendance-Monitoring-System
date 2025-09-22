@@ -349,7 +349,7 @@ class FaceRecognitionScreen(Screen):
 
     # --- Camera start/stop ---
     def on_enter(self):
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(3)
         self.clock_event = Clock.schedule_interval(self.update, 1/30)
 
     def on_pre_leave(self):

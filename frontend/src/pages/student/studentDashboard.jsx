@@ -1,7 +1,46 @@
+import { useState, useEffect } from "react";
 import AttendanceTable from "../../components/AttendanceTable";
 import CardBox from "../../components/CardBox";
 
 export default function Dashboard() {
+  const studentId = "20200044"; // replace with dynamic user ID if needed
+
+  // State for attendance and student info
+  const [attendance, setAttendance] = useState([]);
+  const [student, setStudent] = useState({
+    first_name: "",
+    last_name: "",
+    id: studentId,
+    section: "",
+  });
+
+  // Fetch attendance data
+  useEffect(() => {
+    fetch(`http://localhost:5000/api/attendance/${studentId}`)
+      .then((res) => res.json())
+      .then((data) => setAttendance(data))
+      .catch((err) => console.error(err));
+  }, [studentId]);
+
+  // Fetch student info
+  useEffect(() => {
+    fetch(`http://localhost:5000/api/student/${studentId}`)
+      .then((res) => res.json())
+      .then((data) =>
+        setStudent({
+          first_name: data.first_name,
+          last_name: data.last_name,
+          id: data.id,
+          section: data.section,
+        })
+      )
+      .catch((err) => console.error(err));
+  }, [studentId]);
+
+  // Calculate summaries
+  const presentDays = attendance.filter((a) => a.status === "present").length;
+  const absentDays = attendance.filter((a) => a.status === "absent").length;
+
   return (
     <div className="h-screen w-screen bg-gray-100 flex flex-col">
       {/* Top bar */}
@@ -19,31 +58,35 @@ export default function Dashboard() {
               👤
             </div>
             <div>
-              <h2 className="font-bold text-xl text-black">JUAN DELA CRUZ</h2>
-              <p className="text-sm text-black">Student ID: 20200044</p>
-              <p className="text-sm text-black">STEM - Section A</p>
+              <h2 className="font-bold text-xl text-black">
+                Name: {student.first_name} {student.last_name}
+              </h2>
+              <p className="text-sm text-black">Student ID: {student.id}</p>
+              <p className="text-sm text-black">{student.section}</p>
             </div>
           </div>
 
-          <CardBox title="Present Days" value="18" subtitle="This Month" />
-          <CardBox title="Absent Days" value="4" subtitle="All Time" />
+          <CardBox title="Present Days" value={presentDays} subtitle="This Month" />
+          <CardBox title="Absent Days" value={absentDays} subtitle="All Time" />
         </div>
 
         {/* Attendance status */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 w-full">
           <CardBox title="Present" value="✔️" subtitle="This Month" />
-          <CardBox title="Total Absences" value="📅" subtitle="All Time" />
+          <CardBox title="Total Absences" value={absentDays} subtitle="All Time" />
         </div>
 
         {/* Attendance table */}
         <div className="mb-6 w-full">
-          <AttendanceTable />
+          <AttendanceTable data={attendance} />
         </div>
 
         {/* Warning */}
-        <div className="bg-yellow-100 text-yellow-800 p-4 rounded border border-yellow-400 w-full">
-          ⚠️ You currently have 4 absences. Parents will be notified after 1 more absence.
-        </div>
+        {absentDays >= 4 && (
+          <div className="bg-yellow-100 text-yellow-800 p-4 rounded border border-yellow-400 w-full">
+            ⚠️ You currently have {absentDays} absences. Parents will be notified after 1 more absence.
+          </div>
+        )}
       </div>
     </div>
   );
