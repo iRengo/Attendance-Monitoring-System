@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import InputField from "../components/InputField";
 import ReCAPTCHA from "react-google-recaptcha";
 
-// Import images
 import bannerBottom from "../assets/images/banner1.png";
 import aicsLogo from "../assets/images/aics_logo.png";
 import peoples from "../assets/images/peoples.png";
@@ -14,6 +14,8 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [captchaValue, setCaptchaValue] = useState(null);
 
+  const navigate = useNavigate();
+
   const handleLogin = (e) => {
     e.preventDefault();
 
@@ -22,61 +24,47 @@ export default function Login() {
       return;
     }
 
-    console.log("Username:", username);
-    console.log("Password:", password);
-    console.log("Captcha:", captchaValue);
+    // Dummy role check
+    if (username.toLowerCase().startsWith("s")) {
+      navigate("/student/dashboard");
+    } else if (username.toLowerCase().startsWith("t")) {
+      navigate("/teacher/dashboard");
+    } else {
+      alert("Invalid username. Use 's...' for student or 't...' for teacher.");
+    }
   };
 
   return (
     <div className="min-h-screen w-screen flex">
-
       <div className="w-[70%] flex flex-col bg-white">
-
+        {/* Top Banner */}
         <div className="relative h-24 w-full mb-4 mt-2">
-  <img
-    src={bannerBottom}
-    alt="Top Banner"
-    className="h-full w-full object-cover"
-  />
+          <img
+            src={bannerBottom}
+            alt="Top Banner"
+            className="h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 flex items-center justify-between px-6">
+            <div className="flex items-center space-x-3">
+              <img src={aicsLogo} alt="AICS Logo" className="h-30 object-contain" />
+              <div className="text-white font-bold leading-tight">
+                <p>Asian Institute of</p>
+                <p>Computer Studies</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-20">
+              <img src={anniversary29} alt="29 Years" className="h-25 object-contain" />
+              <img src={peoples} alt="People" className="h-28 object-contain" />
+            </div>
+          </div>
+        </div>
 
-  <div className="absolute inset-0 flex items-center justify-between px-6">
-    <div className="flex items-center space-x-3">
-      <img
-        src={aicsLogo}
-        alt="AICS Logo"
-        className="h-30 object-contain"
-      />
-      <div className="text-white font-bold leading-tight">
-        <p>Asian Institute of</p>
-        <p>Computer Studies</p>
-      </div>
-    </div>
-
-
-    <div className="flex items-center space-x-20">
-      <img
-        src={anniversary29}
-        alt="29 Years"
-        className="h-25 object-contain"
-      />
-      <img
-        src={peoples}
-        alt="People"
-        className="h-28 object-contain"
-      />
-    </div>
-  </div>
-</div>
-
-        {/* Main Login Card */}
         <div className="flex-1 flex items-center justify-center">
           <div className="bg-white border-1 border-[#5F75AF] rounded-md p-8 w-full max-w-sm shadow-lg">
             <h2 className="text-xl font-bold text-center mb-2 text-[#5F75AF]">
               Attendance Monitoring Portal
             </h2>
-            <p className="text-center text-sm text-[#5F75AF] mb-8">
-              Bacoor Branch
-            </p>
+            <p className="text-center text-sm text-[#5F75AF] mb-8">Bacoor Branch</p>
 
             <form onSubmit={handleLogin} className="space-y-4">
               <InputField
@@ -118,8 +106,6 @@ export default function Login() {
           </div>
         </div>
 
-
-        {/* Bottom Banner */}
         <div className="h-5 w-full flex items-center justify-center">
           <img
             src={bannerBottom}
@@ -129,7 +115,6 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Right Side - Announcements */}
       <div
         className="w-[30%] relative flex items-center justify-center p-6"
         style={{
@@ -138,7 +123,6 @@ export default function Login() {
           backgroundPosition: "center",
         }}
       >
-        {/* Transparent outlined box */}
         <div className="w-full h-full bg-transparent border-2 border-white rounded-lg p-6">
           <h2 className="text-lg font-bold text-white mb-4">Announcements</h2>
           <ul className="space-y-3 text-sm text-white">
