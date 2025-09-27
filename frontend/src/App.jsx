@@ -1,9 +1,12 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import Login from "./pages/Login";
 import StudentDashboard from "./pages/student/studentDashboard";
 import StudentAttendance from "./pages/student/studentAttendance";
 import StudentSchedules from "./pages/student/studentSchedules";
 import StudentNotifications from "./pages/student/studentNotifications";
+import StudentDataprivacy from "./pages/student/studentDataprivacy";
 import StudentSettings from "./pages/student/studentSettings";
 
 import TeacherDashboard from "./pages/teacher/teacherDashboard";
@@ -11,6 +14,16 @@ import TeacherDashboard from "./pages/teacher/teacherDashboard";
 function App() {
   return (
     <Router>
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        pauseOnHover
+        draggable
+        theme="colored"
+      />
       <Routes>
         <Route path="/" element={<Login />} />
 
@@ -19,6 +32,7 @@ function App() {
         <Route path="/student/attendance" element={<StudentAttendance />} />
         <Route path="/student/schedules" element={<StudentSchedules />} />
         <Route path="/student/notifications" element={<StudentNotifications />} />
+        <Route path="/student/dataprivacy" element={<StudentDataprivacy />} />
         <Route path="/student/settings" element={<StudentSettings />} />
 
         {/* Teacher routes */}

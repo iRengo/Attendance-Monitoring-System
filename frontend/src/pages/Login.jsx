@@ -2,6 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import InputField from "../components/InputField";
 import ReCAPTCHA from "react-google-recaptcha";
+import { toast } from "react-toastify";
+
+import { db } from "../firebase";
+import { collection, query, where, getDocs } from "firebase/firestore";
 
 import bannerBottom from "../assets/images/banner1.png";
 import aicsLogo from "../assets/images/aics_logo.png";
@@ -10,29 +14,63 @@ import anniversary29 from "../assets/images/29y.png";
 import announcementBg from "../assets/images/announcements.png";
 
 export default function Login() {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [captchaValue, setCaptchaValue] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
 
-  const handleLogin = (e) => {
-    e.preventDefault();
+  const handleLogin = async (e) => {
+  e.preventDefault();
 
-    if (!captchaValue) {
-      alert("Please complete the CAPTCHA!");
+  if (!captchaValue) {
+    toast.error("Please complete the CAPTCHA!");
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const emailTrimmed = email.trim().toLowerCase();
+
+    const q = query(
+      collection(db, "portal_accounts"),
+      where("email", "==", emailTrimmed),
+      where("password", "==", password)
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      toast.error(" Invalid email or password!");
+      setLoading(false);
       return;
     }
 
-    // Dummy role check
-    if (username.toLowerCase().startsWith("s")) {
-      navigate("/student/dashboard");
-    } else if (username.toLowerCase().startsWith("t")) {
-      navigate("/teacher/dashboard");
-    } else {
-      alert("Invalid username. Use 's...' for student or 't...' for teacher.");
+    const userData = querySnapshot.docs[0].data();
+
+    switch (userData.role) {
+      case "student":
+        navigate("/student/dashboard");
+        break;
+      case "teacher":
+        navigate("/teacher/dashboard");
+        break;
+      case "admin":
+        navigate("/admin/dashboard");
+        break;
+      default:
+        alert("Unknown role. Contact admin.");
     }
-  };
+
+  } catch (error) {
+    console.error(error);
+    toast.error("Login failed: " + error.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen w-screen flex">
@@ -60,7 +98,7 @@ export default function Login() {
         </div>
 
         <div className="flex-1 flex items-center justify-center">
-          <div className="bg-white border-1 border-[#5F75AF] rounded-md p-8 w-full max-w-sm shadow-lg">
+          <div className="bg-white border border-[#5F75AF] rounded-md p-8 w-full max-w-sm shadow-lg">
             <h2 className="text-xl font-bold text-center mb-2 text-[#5F75AF]">
               Attendance Monitoring Portal
             </h2>
@@ -68,11 +106,11 @@ export default function Login() {
 
             <form onSubmit={handleLogin} className="space-y-4">
               <InputField
-                label="Username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
+                label="Email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
                 className="text-[#5F75AF] placeholder-[#5F75AF]"
               />
 
@@ -98,9 +136,10 @@ export default function Login() {
 
               <button
                 type="submit"
-                className="w-full py-2 rounded text-white bg-[#5F75AF]"
+                disabled={loading}
+                className="w-full py-2 rounded text-white bg-[#5F75AF] disabled:opacity-50"
               >
-                Sign In
+                {loading ? "Signing in..." : "Sign In"}
               </button>
             </form>
           </div>

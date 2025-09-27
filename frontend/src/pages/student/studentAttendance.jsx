@@ -1,11 +1,11 @@
 import StudentLayout from "../../components/studentLayout";
 
-export default function StudentAttendance() {
+export default function studentAttendance() {
     return (
         <StudentLayout title="Attendance">
-            <div className="border border-[#415CA0] rounded-lg p-4 space-y-4">
+            <div className="shadow-md border border-[#d6d6d6] rounded-lg p-4 space-y-4">
       
-                {/* Top Actions */}
+          
                 <div className="flex justify-between items-center">
   
                     <button className="flex items-center gap-2 px-3 py-1 border border-[#415CA0] text-[#415CA0] rounded">
@@ -23,7 +23,7 @@ export default function StudentAttendance() {
                     </button>
                 </div>
 
-                {/* Attendance Table */}
+     
                 <div className="overflow-x-auto">
                     <table className="w-full border-collapse border border-[#415CA0] text-sm text-[#415CA0]">
                         <thead className="bg-gray-50">
@@ -54,7 +54,6 @@ export default function StudentAttendance() {
                     </table>
                 </div>
 
-                {/* Pagination */}
                 <div className="flex justify-between items-center text-sm">
                     <p className="text-[#415CA0]">Showing 10 out of 50 records</p>
                     <div className="flex gap-2">
