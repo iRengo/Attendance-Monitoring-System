@@ -1,10 +1,14 @@
 import { useState } from "react";
-import { Home, CalendarCheck, Settings, Menu, ChevronDown, CalendarDays, FileCheck, } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { Home, CalendarCheck, Settings, Menu, ChevronDown, CalendarDays, FileCheck, LogOut, Bell } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { signOut } from "firebase/auth";
+import { auth } from "../firebase";
 
 export default function StudentLayout({ title, children }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const navItems = [
     { name: "Dashboard", path: "/student/dashboard", icon: <Home size={20} /> },
@@ -15,6 +19,15 @@ export default function StudentLayout({ title, children }) {
   ];
 
   const pathnames = location.pathname.split("/").filter((x) => x);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      navigate("/");
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  };
 
   return (
     <div className="flex h-screen w-screen">
@@ -66,6 +79,7 @@ export default function StudentLayout({ title, children }) {
           ))}
         </nav>
       </div>
+
       <div
         className={`flex-1 flex flex-col transition-all duration-300 ${isCollapsed ? "ml-26" : "ml-74"
           }`}
@@ -79,19 +93,50 @@ export default function StudentLayout({ title, children }) {
         >
           <h2 className="text-lg font-bold text-[#415CA0]">{title}</h2>
 
+          <div className="flex items-center gap-6">
+            <div className="relative">
+              <button
+                className="p-2 rounded-full hover:bg-gray-100 transition"
+                onClick={() => console.log("Open notifications")}
+              >
+                <Bell size={22} className="text-[#415CA0]" />
+              </button>
+              <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full px-1">3</span>
+            </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 cursor-pointer bg-white px-3 py-1 rounded-full border border-[#415CA0] hover:bg-[#F0F4FF] transition">
-              <div className="h-8 w-8 flex items-center justify-center rounded-full bg-[#415CA0] text-white font-bold">
-                J
+            <div className="relative">
+              <div
+                className="flex items-center gap-4 cursor-pointer bg-white px-3 py-1 border hover:bg-[#F0F4FF] transition"
+                onClick={() => setMenuOpen((o) => !o)}
+              >
+                <div className="h-10 w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold ">
+                  J
+                </div>
+
+                <div className="flex flex-col leading-tight">
+                  <span className="font-medium text-[#32487E]">Juan Dela Cruz</span>
+                  <span className="text-xs text-gray-500">Student</span>
+                </div>
+
+                <ChevronDown size={16} className="text-[#415CA0]" />
               </div>
-              <span className="font-medium text-[#32487E]">Juan D.</span>
-              <ChevronDown size={16} className="text-[#415CA0]" />
+
+              {menuOpen && (
+                <div className="absolute right-0 mt-2 w-54 bg-white border border-gray-300 shadow-lg z-50">
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors"
+                  >
+                    <LogOut size={18} />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
-        <div className="flex-1 p-6 bg-gray-50 mt-16 overflow-y-auto">
 
+        <div className="flex-1 p-6 bg-gray-50 mt-16 overflow-y-auto">
           <div className="w-full flex justify-end mb-4">
             <div className="text-sm text-gray-500 flex gap-1">
               <span className="hover:underline text-[#415CA0] cursor-pointer">
@@ -103,7 +148,9 @@ export default function StudentLayout({ title, children }) {
                   <span key={name} className="flex gap-1">
                     <span>/</span>
                     <span
-                      className={`capitalize ${isLast ? "text-[#415CA0] font-medium" : "text-gray-600"
+                      className={`capitalize ${isLast
+                        ? "text-[#415CA0] font-medium"
+                        : "text-gray-600"
                         }`}
                     >
                       {name}

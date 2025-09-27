@@ -1,14 +1,13 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import Login from "./pages/Login";
+import Login from "./pages/login";
 import StudentDashboard from "./pages/student/studentDashboard";
 import StudentAttendance from "./pages/student/studentAttendance";
 import StudentSchedules from "./pages/student/studentSchedules";
 import StudentNotifications from "./pages/student/studentNotifications";
 import StudentDataprivacy from "./pages/student/studentDataprivacy";
 import StudentSettings from "./pages/student/studentSettings";
-
 import TeacherDashboard from "./pages/teacher/teacherDashboard";
 
 function App() {

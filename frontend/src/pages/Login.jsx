@@ -4,8 +4,9 @@ import InputField from "../components/InputField";
 import ReCAPTCHA from "react-google-recaptcha";
 import { toast } from "react-toastify";
 
-import { db } from "../firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { auth, db } from "../firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 
 import bannerBottom from "../assets/images/banner1.png";
 import aicsLogo from "../assets/images/aics_logo.png";
@@ -22,60 +23,58 @@ export default function Login() {
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!captchaValue) {
-    toast.error("Please complete the CAPTCHA!");
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    const emailTrimmed = email.trim().toLowerCase();
-
-    const q = query(
-      collection(db, "portal_accounts"),
-      where("email", "==", emailTrimmed),
-      where("password", "==", password)
-    );
-
-    const querySnapshot = await getDocs(q);
-
-    if (querySnapshot.empty) {
-      toast.error(" Invalid email or password!");
-      setLoading(false);
+    if (!captchaValue) {
+      toast.error("Please complete the CAPTCHA!");
       return;
     }
 
-    const userData = querySnapshot.docs[0].data();
+    setLoading(true);
 
-    switch (userData.role) {
-      case "student":
-        navigate("/student/dashboard");
-        break;
-      case "teacher":
-        navigate("/teacher/dashboard");
-        break;
-      case "admin":
-        navigate("/admin/dashboard");
-        break;
-      default:
-        alert("Unknown role. Contact admin.");
+    try {
+      const emailTrimmed = email.trim().toLowerCase();
+
+      const userCred = await signInWithEmailAndPassword(
+        auth,
+        emailTrimmed,
+        password
+      );
+      const uid = userCred.user.uid;
+
+      const userDoc = await getDoc(doc(db, "portal_accounts", uid));
+      if (!userDoc.exists()) {
+        toast.error("No profile document found for this user.");
+        return;
+      }
+
+      const userData = userDoc.data();
+
+      switch (userData.role) {
+        case "student":
+          navigate("/student/dashboard");
+          break;
+        case "teacher":
+          navigate("/teacher/dashboard");
+          break;
+        case "admin":
+          navigate("/admin/dashboard");
+          break;
+        default:
+          toast.error("Unknown role. Contact administrator.");
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Login failed: " + error.message);
+    } finally {
+      setLoading(false);
     }
-
-  } catch (error) {
-    console.error(error);
-    toast.error("Login failed: " + error.message);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   return (
     <div className="min-h-screen w-screen flex">
       <div className="w-[70%] flex flex-col bg-white">
-        {/* Top Banner */}
+  
         <div className="relative h-24 w-full mb-4 mt-2">
           <img
             src={bannerBottom}
