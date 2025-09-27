@@ -31,7 +31,6 @@ export default function StudentLayout({ title, children }) {
 
   return (
     <div className="flex h-screen w-screen">
-      {/* Sidebar */}
       <div
         className={`fixed left-0 top-0 h-screen ${isCollapsed ? "w-26" : "w-74"
           } bg-[#415CA0] flex flex-col text-white transition-all duration-300 z-50`}
