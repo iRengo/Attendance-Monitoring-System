@@ -3,13 +3,13 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCVQihEJ8pIeNdJrtGa13zluhtqnzLtyLA",
-  authDomain: "attendance-management-sy-57ce1.firebaseapp.com",
-  projectId: "attendance-management-sy-57ce1",
-  storageBucket: "attendance-management-sy-57ce1.appspot.com", 
-  messagingSenderId: "927530833371",
-  appId: "1:927530833371:web:e5624ff837e868294943fe",
-  measurementId: "G-PXDCZC4Y7K",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
