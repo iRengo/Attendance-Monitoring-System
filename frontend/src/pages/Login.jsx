@@ -4,10 +4,6 @@ import InputField from "../components/InputField";
 import ReCAPTCHA from "react-google-recaptcha";
 import { toast } from "react-toastify";
 
-import { auth, db } from "../firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-
 import bannerBottom from "../assets/images/banner1.png";
 import aicsLogo from "../assets/images/aics_logo.png";
 import peoples from "../assets/images/peoples.png";
@@ -35,33 +31,14 @@ export default function Login() {
     try {
       const emailTrimmed = email.trim().toLowerCase();
 
-      const userCred = await signInWithEmailAndPassword(
-        auth,
-        emailTrimmed,
-        password
-      );
-      const uid = userCred.user.uid;
-
-      const userDoc = await getDoc(doc(db, "portal_accounts", uid));
-      if (!userDoc.exists()) {
-        toast.error("No profile document found for this user.");
-        return;
-      }
-
-      const userData = userDoc.data();
-
-      switch (userData.role) {
-        case "student":
-          navigate("/student/dashboard");
-          break;
-        case "teacher":
-          navigate("/teacher/dashboard");
-          break;
-        case "admin":
-          navigate("/admin/dashboard");
-          break;
-        default:
-          toast.error("Unknown role. Contact administrator.");
+      if (emailTrimmed.startsWith("s")) {
+        navigate("/student/dashboard");
+      } else if (emailTrimmed.startsWith("t")) {
+        navigate("/teacher/dashboard");
+      } else if (emailTrimmed.startsWith("a")) {
+        navigate("/admin/dashboard");
+      } else {
+        toast.error("Invalid role. Use email starting with s, t, or a.");
       }
     } catch (error) {
       console.error(error);
@@ -74,7 +51,6 @@ export default function Login() {
   return (
     <div className="min-h-screen w-screen flex">
       <div className="w-[70%] flex flex-col bg-white">
-  
         <div className="relative h-24 w-full mb-4 mt-2">
           <img
             src={bannerBottom}
@@ -118,7 +94,7 @@ export default function Login() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
+                placeholder="Enter any password"
                 className="text-[#5F75AF] placeholder-[#5F75AF]"
               />
 
