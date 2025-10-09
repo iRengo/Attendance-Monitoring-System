@@ -38,12 +38,25 @@ export default function Login() {
     try {
       const emailTrimmed = email.trim().toLowerCase();
 
-      if (emailTrimmed === "a@gmail.com") {
-        navigate("/admin/dashboard");
-        return;
+      // 🔍 Check Admin collection first
+      const adminSnapshot = await getDocs(collection(db, "admins"));
+      const adminDoc = adminSnapshot.docs.find((doc) => doc.data().email === emailTrimmed);
+
+      if (adminDoc) {
+        const adminData = adminDoc.data();
+        const userCredential = await signInWithEmailAndPassword(auth, emailTrimmed, password);
+
+        if (adminData.status === "active" || !adminData.status) {
+          navigate("/admin/dashboard");
+          return;
+        } else {
+          toast.warning("Admin account is inactive or unapproved.");
+          return;
+        }
       }
 
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // 🔍 If not admin, try normal users
+      const userCredential = await signInWithEmailAndPassword(auth, emailTrimmed, password);
       const user = userCredential.user;
 
       const collections = ["students", "teachers"];
@@ -52,7 +65,7 @@ export default function Login() {
 
       for (const col of collections) {
         const q = await getDocs(collection(db, col));
-        const docSnap = q.docs.find(doc => doc.data().email === email);
+        const docSnap = q.docs.find((doc) => doc.data().email === emailTrimmed);
 
         if (docSnap) {
           userDoc = docSnap.data();
@@ -67,7 +80,7 @@ export default function Login() {
       }
 
       if (userDoc.status !== "approved") {
-        toast.warning("Your account is pending approval. Please wait for admin confirmation.");
+        toast.warning("Your account is pending admin approval.");
         return;
       }
 
