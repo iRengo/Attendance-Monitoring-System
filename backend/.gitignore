@@ -59,4 +59,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .env
 
 # json account
-firebase-service-account.json
+src/firebase-service-account.json
