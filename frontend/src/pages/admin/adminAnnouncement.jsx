@@ -1,7 +1,220 @@
-import AdminLayout from "../../components/adminLayout"; 
+import { useState, useEffect } from "react";
+import { Edit3, Trash2, CalendarDays } from "lucide-react";
+import AdminLayout from "../../components/adminLayout";
+
 export default function adminAnnouncement() {
-    return (
+  const [announcements, setAnnouncements] = useState([]);
+  const [formData, setFormData] = useState({
+    title: "",
+    content: "",
+    target: "all",
+    expiration: "",
+  });
+  const [editingIndex, setEditingIndex] = useState(null);
+
+  // Auto-update statuses
+  useEffect(() => {
+    const updated = announcements.map((a) => ({
+      ...a,
+      status: new Date(a.expiration) < new Date() ? "Expired" : "Active",
+    }));
+    setAnnouncements(updated);
+  }, [announcements.length]);
+
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.title || !formData.content || !formData.expiration) return;
+
+    const newAnnouncement = {
+      ...formData,
+      author: "Admin",
+      date: new Date().toLocaleDateString(),
+      status:
+        new Date(formData.expiration) < new Date() ? "Expired" : "Active",
+    };
+
+    if (editingIndex !== null) {
+      const updated = [...announcements];
+      updated[editingIndex] = newAnnouncement;
+      setAnnouncements(updated);
+      setEditingIndex(null);
+    } else {
+      setAnnouncements([...announcements, newAnnouncement]);
+    }
+
+    setFormData({ title: "", content: "", target: "all", expiration: "" });
+  };
+
+  const handleEdit = (index) => {
+    setFormData(announcements[index]);
+    setEditingIndex(index);
+  };
+
+  const handleDelete = (index) => {
+    if (confirm("Are you sure you want to delete this announcement?")) {
+      setAnnouncements(announcements.filter((_, i) => i !== index));
+    }
+  };
+
+  return (
     <AdminLayout title="Announcements Management">
+      <div className="p-6">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white p-5 rounded-xl shadow-md mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-semibold tracking-wide">
+            Create Announcement
+          </h2>
+          <CalendarDays size={24} className="opacity-80" />
+        </div>
+
+        {/* Form Section */}
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white rounded-xl shadow-lg p-6 mb-10 transition hover:shadow-xl"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-5">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700">
+                Title
+              </label>
+              <input
+                type="text"
+                name="title"
+                value={formData.title}
+                onChange={handleChange}
+                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+                placeholder="Enter announcement title..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700">
+                Target Audience
+              </label>
+              <select
+                name="target"
+                value={formData.target}
+                onChange={handleChange}
+                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+              >
+                <option value="all">All Users</option>
+                <option value="students">Students Only</option>
+                <option value="teachers">Teachers Only</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mb-5">
+            <label className="block text-sm font-semibold text-gray-700">
+              Content
+            </label>
+            <textarea
+              name="content"
+              value={formData.content}
+              onChange={handleChange}
+              rows="4"
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+              placeholder="Write your announcement content..."
+            ></textarea>
+          </div>
+
+          <div className="mb-5">
+            <label className="block text-sm font-semibold text-gray-700">
+              Expiration Date
+            </label>
+            <input
+              type="date"
+              name="expiration"
+              value={formData.expiration}
+              onChange={handleChange}
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white px-6 py-2 rounded-lg hover:opacity-90 transition"
+          >
+            {editingIndex !== null ? "Update Announcement" : "Post Announcement"}
+          </button>
+        </form>
+
+        {/* Announcements List */}
+        <div className="bg-white shadow-lg rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            📋 Announcements List
+          </h2>
+
+          <table className="w-full text-left border border-gray-200 rounded-lg overflow-hidden">
+            <thead className="bg-[rgb(52,152,219)] text-white">
+              <tr>
+                <th className="py-3 px-4 text-sm font-semibold">Title</th>
+                <th className="py-3 px-4 text-sm font-semibold">Date</th>
+                <th className="py-3 px-4 text-sm font-semibold">Author</th>
+                <th className="py-3 px-4 text-sm font-semibold">Status</th>
+                <th className="py-3 px-4 text-sm font-semibold text-right">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {announcements.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="text-center py-6 text-gray-500">
+                    No announcements yet.
+                  </td>
+                </tr>
+              ) : (
+                announcements.map((a, i) => (
+                  <tr
+                    key={i}
+                    className={`border-b border-gray-100 transition ${
+                      a.status === "Expired"
+                        ? "bg-gray-50 opacity-80"
+                        : "hover:bg-blue-50"
+                    }`}
+                  >
+                    <td className="py-3 px-4 text-gray-800 font-medium">
+                      {a.title}
+                    </td>
+                    <td className="py-3 px-4 text-gray-700">{a.date}</td>
+                    <td className="py-3 px-4 text-gray-700">{a.author}</td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                          a.status === "Active"
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-600"
+                        }`}
+                      >
+                        {a.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right space-x-3">
+                      <button
+                        onClick={() => handleEdit(i)}
+                        className="text-blue-500 hover:text-blue-700 transition"
+                      >
+                        <Edit3 size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(i)}
+                        className="text-red-500 hover:text-red-700 transition"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </AdminLayout>
-    )
+  );
 }
