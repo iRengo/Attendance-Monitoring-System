@@ -65,7 +65,7 @@ export default function Login() {
 
       for (const col of collections) {
         const q = await getDocs(collection(db, col));
-        const docSnap = q.docs.find((doc) => doc.data().email === emailTrimmed);
+        const docSnap = q.docs.find((doc) => doc.data().school_email === emailTrimmed);
 
         if (docSnap) {
           userDoc = docSnap.data();
@@ -76,11 +76,6 @@ export default function Login() {
 
       if (!userDoc) {
         toast.error("No user record found in Firestore!");
-        return;
-      }
-
-      if (userDoc.status !== "approved") {
-        toast.warning("Your account is pending admin approval.");
         return;
       }
 

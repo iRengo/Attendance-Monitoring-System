@@ -1,78 +1,238 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import StudentLayout from "../../components/studentLayout";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../../firebase";
+import { toast } from "react-toastify";
+import { updatePassword } from "firebase/auth";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function StudentSettings() {
   const [activeTab, setActiveTab] = useState("account");
+  const [studentData, setStudentData] = useState({
+    firstname: "",
+    middlename: "",
+    lastname: "",
+    school_email: "",
+  });
+
+  const [passwords, setPasswords] = useState({
+    new: "",
+    confirm: "",
+  });
+
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const [loading, setLoading] = useState(true);
+
+  // Fetch student data
+  useEffect(() => {
+    const fetchStudentData = async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+          toast.error("No logged-in user found!");
+          return;
+        }
+
+        const docRef = doc(db, "students", user.uid);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const { firstname, middlename, lastname, school_email } = docSnap.data();
+          setStudentData({ firstname, middlename, lastname, school_email });
+        } else {
+          toast.error("Student record not found!");
+        }
+      } catch (error) {
+        console.error("Error fetching student data:", error);
+        toast.error("Failed to fetch student data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStudentData();
+  }, []);
+
+  const handlePasswordChange = (e) => {
+    setPasswords({ ...passwords, [e.target.name]: e.target.value });
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwords.new || !passwords.confirm) {
+      toast.error("Please fill in both fields");
+      return;
+    }
+    if (passwords.new !== passwords.confirm) {
+      toast.error("Passwords do not match!");
+      return;
+    }
+
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error("User not logged in");
+        return;
+      }
+
+      await updatePassword(user, passwords.new);
+
+      toast.success("Password updated successfully!");
+      setPasswords({ new: "", confirm: "" });
+    } catch (error) {
+      console.error("Error updating password:", error);
+      toast.error("Failed to update password: " + error.message);
+    }
+  };
 
   return (
     <StudentLayout title="Settings">
-   
-      <div className="border-b border-[#415CA0] mb-4 flex gap-6">
+      {/* Tabs */}
+      <div className="flex border-b border-[#415CA0] mb-6 gap-6">
         <button
           onClick={() => setActiveTab("account")}
-          className={`pb-2 font-medium ${
+          className={`pb-3 font-semibold transition-colors ${
             activeTab === "account"
               ? "text-[#415CA0] border-b-2 border-[#415CA0]"
-              : "text-gray-500 hover:text-[#415CA0]"
+              : "text-gray-400 hover:text-[#415CA0]"
           }`}
         >
           Account
         </button>
         <button
           onClick={() => setActiveTab("profile")}
-          className={`pb-2 font-medium ${
+          className={`pb-3 font-semibold transition-colors ${
             activeTab === "profile"
               ? "text-[#415CA0] border-b-2 border-[#415CA0]"
-              : "text-gray-500 hover:text-[#415CA0]"
+              : "text-gray-400 hover:text-[#415CA0]"
           }`}
         >
           Profile
         </button>
       </div>
 
-      <div className="p-4 border  rounded-lg">
-        {activeTab === "account" && (
-          <div className="flex gap-4">
-      
-            <div className="w-2/3 shadow-md border border-[#d6d6d6] rounded p-4">
-              <h2 className="text-lg font-bold text-[#415CA0] mb-2">
-                Account Details
-              </h2>
-              <p className="text-sm text-gray-600">
-                Example: Username, Email, Password settings, etc.
-              </p>
-            </div>
+      {activeTab === "account" && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Account Info */}
+          <div className="lg:col-span-2 bg-white shadow-md rounded-xl p-8 border border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-800 mb-6">Account Information</h2>
 
-            <div className="w-1/3 shadow-md border border-[#d6d6d6] rounded p-4">
-              <h2 className="text-lg font-bold text-[#415CA0] mb-2">
-                Quick Actions
-              </h2>
-              <p className="text-sm text-gray-600">Example: Reset password, 2FA.</p>
+            {loading ? (
+              <p className="text-gray-500">Loading account info...</p>
+            ) : (
+              <div className="space-y-5">
+                <div>
+                  <label className="text-gray-600 text-sm">First Name</label>
+                  <input
+                    type="text"
+                    value={studentData.firstname}
+                    readOnly
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-gray-600 text-sm">Middle Name</label>
+                  <input
+                    type="text"
+                    value={studentData.middlename}
+                    readOnly
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-gray-600 text-sm">Last Name</label>
+                  <input
+                    type="text"
+                    value={studentData.lastname}
+                    readOnly
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-gray-600 text-sm">Email</label>
+                  <input
+                    type="email"
+                    value={studentData.school_email}
+                    readOnly
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Password Section */}
+          <div className="bg-white shadow-md rounded-xl p-8 border border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-800 mb-6">Change Password</h2>
+            <div className="space-y-5">
+              <div className="relative">
+                <label className="text-gray-600 text-sm">New Password</label>
+                <input
+                  type={showNewPassword ? "text" : "password"}
+                  name="new"
+                  value={passwords.new}
+                  onChange={handlePasswordChange}
+                  className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 text-gray-800 focus:ring-2 focus:ring-[#3498db] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-3 top-8 text-gray-500"
+                >
+                  {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+
+              <div className="relative">
+                <label className="text-gray-600 text-sm">Confirm New Password</label>
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  name="confirm"
+                  value={passwords.confirm}
+                  onChange={handlePasswordChange}
+                  className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 text-gray-800 focus:ring-2 focus:ring-[#3498db] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-8 text-gray-500"
+                >
+                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={handleChangePassword}
+                  className="bg-[#3498db] text-white px-5 py-2 rounded-lg font-medium hover:bg-[#2980b9] transition"
+                >
+                  Update Password
+                </button>
+              </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {activeTab === "profile" && (
-          <div className="flex gap-4">
-    
-            <div className="w-2/3 shadow-md border border-[#d6d6d6] rounded p-4">
-              <h2 className="text-lg font-bold text-[#415CA0] mb-2">
-                Profile Info
-              </h2>
-              <p className="text-sm text-gray-600">
-                Example: Full Name, Contact info, Bio, etc.
-              </p>
-            </div>
-
-            <div className="w-1/3 border shadow-md border-[#d6d6d6] rounded p-4">
-              <h2 className="text-lg font-bold text-[#415CA0] mb-2">
-                Profile Picture
-              </h2>
-              <p className="text-sm text-gray-600">Example: Upload/change profile picture.</p>
-            </div>
+      {activeTab === "profile" && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 bg-white shadow-md rounded-xl p-8 border border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-800 mb-6">Profile Info</h2>
+            <p className="text-gray-700 text-sm">
+              Full Name, Contact Info, Bio, etc. Customize your profile here.
+            </p>
           </div>
-        )}
-      </div>
+
+          <div className="bg-white shadow-md rounded-xl p-8 border border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-800 mb-6">Profile Picture</h2>
+            <p className="text-gray-700 text-sm">Upload or change your profile picture.</p>
+          </div>
+        </div>
+      )}
     </StudentLayout>
   );
 }
