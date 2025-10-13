@@ -15,8 +15,10 @@ export default function TeacherLayout({ title, children }) {
     { name: "Current Classes", path: "/teacher/classes", icon: <FileCheck size={20} /> },
     { name: "Attendance Management", path: "/teacher/attendance", icon: <CalendarDays size={20} /> },
     { name: "Schedules", path: "/teacher/schedules", icon: <CalendarCheck size={20} /> },
+    { name: "Announcements", path: "/teacher/announcements", icon: <Bell size={20} /> },
     { name: "Settings", path: "/teacher/settings", icon: <Settings size={20} /> },
   ];
+  
 
   const pathnames = location.pathname.split("/").filter((x) => x);
 

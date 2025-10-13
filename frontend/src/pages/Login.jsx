@@ -1,8 +1,8 @@
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc, collection, getDocs } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import InputField from "../components/InputField";
 import ReCAPTCHA from "react-google-recaptcha";
@@ -22,8 +22,35 @@ export default function Login() {
   const [captchaValue, setCaptchaValue] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
+  const [announcements, setAnnouncements] = useState([]);
 
   const navigate = useNavigate();
+
+  // ✅ Real-time announcement sync
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "announcements"), (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+      const filtered = data.filter((a) => {
+        const now = new Date();
+        const exp = new Date(a.expiration);
+        return (
+          (a.target === "students" || a.target === "all") &&
+          exp >= now
+        );
+      });
+
+      filtered.sort(
+        (a, b) =>
+          new Date(b.createdAt?.toDate?.() || 0) -
+          new Date(a.createdAt?.toDate?.() || 0)
+      );
+
+      setAnnouncements(filtered);
+    });
+
+    return () => unsub();
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -40,11 +67,17 @@ export default function Login() {
 
       // 🔍 Check Admin collection first
       const adminSnapshot = await getDocs(collection(db, "admins"));
-      const adminDoc = adminSnapshot.docs.find((doc) => doc.data().email === emailTrimmed);
+      const adminDoc = adminSnapshot.docs.find(
+        (doc) => doc.data().email === emailTrimmed
+      );
 
       if (adminDoc) {
         const adminData = adminDoc.data();
-        const userCredential = await signInWithEmailAndPassword(auth, emailTrimmed, password);
+        const userCredential = await signInWithEmailAndPassword(
+          auth,
+          emailTrimmed,
+          password
+        );
 
         if (adminData.status === "active" || !adminData.status) {
           navigate("/admin/dashboard");
@@ -56,7 +89,11 @@ export default function Login() {
       }
 
       // 🔍 If not admin, try normal users
-      const userCredential = await signInWithEmailAndPassword(auth, emailTrimmed, password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        emailTrimmed,
+        password
+      );
       const user = userCredential.user;
 
       const collections = ["students", "teachers"];
@@ -65,7 +102,9 @@ export default function Login() {
 
       for (const col of collections) {
         const q = await getDocs(collection(db, col));
-        const docSnap = q.docs.find((doc) => doc.data().school_email === emailTrimmed);
+        const docSnap = q.docs.find(
+          (doc) => doc.data().school_email === emailTrimmed
+        );
 
         if (docSnap) {
           userDoc = docSnap.data();
@@ -86,7 +125,6 @@ export default function Login() {
       } else {
         toast.error("Unknown user role.");
       }
-
     } catch (error) {
       console.error(error);
       toast.error("Login failed: " + error.message);
@@ -97,6 +135,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen w-screen flex overflow-hidden bg-[#f2f4fa] relative">
+      {/* LEFT SIDE */}
       <div className="relative w-[70%] overflow-hidden">
         <AnimatePresence mode="wait">
           {!showRegister ? (
@@ -108,30 +147,49 @@ export default function Login() {
               transition={{ duration: 0.15, ease: "easeInOut" }}
               className="absolute inset-0 flex flex-col bg-white"
             >
-
+              {/* HEADER */}
               <div className="relative h-24 w-full mb-4 mt-2">
-                <img src={bannerBottom} alt="Top Banner" className="h-full w-full object-cover" />
+                <img
+                  src={bannerBottom}
+                  alt="Top Banner"
+                  className="h-full w-full object-cover"
+                />
                 <div className="absolute inset-0 flex items-center justify-between px-6">
                   <div className="flex items-center space-x-3">
-                    <img src={aicsLogo} alt="AICS Logo" className="h-30 object-contain" />
+                    <img
+                      src={aicsLogo}
+                      alt="AICS Logo"
+                      className="h-30 object-contain"
+                    />
                     <div className="text-white font-bold leading-tight">
                       <p>Asian Institute of</p>
                       <p>Computer Studies</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-20">
-                    <img src={anniversary29} alt="29 Years" className="h-25 object-contain" />
-                    <img src={peoples} alt="People" className="h-28 object-contain" />
+                    <img
+                      src={anniversary29}
+                      alt="29 Years"
+                      className="h-25 object-contain"
+                    />
+                    <img
+                      src={peoples}
+                      alt="People"
+                      className="h-28 object-contain"
+                    />
                   </div>
                 </div>
               </div>
 
+              {/* LOGIN FORM */}
               <div className="flex-1 flex items-center justify-center">
                 <div className="bg-white border border-[#5F75AF] rounded-md p-8 w-full max-w-sm shadow-lg">
                   <h2 className="text-xl font-bold text-center mb-2 text-[#5F75AF]">
                     Attendance Monitoring Portal
                   </h2>
-                  <p className="text-center text-sm text-[#5F75AF] mb-8">Bacoor Branch</p>
+                  <p className="text-center text-sm text-[#5F75AF] mb-8">
+                    Bacoor Branch
+                  </p>
 
                   <form onSubmit={handleLogin} className="space-y-4">
                     <InputField
@@ -184,15 +242,19 @@ export default function Login() {
 
               {/* FOOTER */}
               <div className="h-5 w-full flex items-center justify-center">
-                <img src={bannerBottom} alt="Bottom Banner" className="h-full w-full object-cover" />
+                <img
+                  src={bannerBottom}
+                  alt="Bottom Banner"
+                  className="h-full w-full object-cover"
+                />
               </div>
             </motion.div>
           ) : (
             <motion.div
               key="register-left"
-              initial={{ x: -300, opacity: 0 }}   // Start from the left
-              animate={{ x: 0, opacity: 1 }}      // Move to center
-              exit={{ x: -300, opacity: 0 }}      // Slide back to the left when exiting
+              initial={{ x: -300, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -300, opacity: 0 }}
               transition={{ duration: 0.6, ease: "easeInOut" }}
               className="absolute inset-0 flex items-center justify-center bg-[#5F75AF]"
             >
@@ -205,12 +267,11 @@ export default function Login() {
                 </p>
               </div>
             </motion.div>
-
           )}
         </AnimatePresence>
       </div>
 
-      {/* RIGHT SIDE */}
+      {/* RIGHT SIDE - 🔔 ANNOUNCEMENTS PANEL */}
       <div className="relative w-[30%] overflow-hidden">
         <AnimatePresence mode="wait">
           {!showRegister ? (
@@ -220,18 +281,40 @@ export default function Login() {
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 200, opacity: 0 }}
               transition={{ duration: 0.6, ease: "easeInOut" }}
-              className="absolute inset-0 flex items-center justify-center p-6"
+              className="absolute inset-0 flex flex-col items-center justify-start p-6"
               style={{
                 backgroundImage: `url(${announcementBg})`,
                 backgroundSize: "cover",
                 backgroundPosition: "center",
               }}
             >
-              <div className="w-full h-full bg-transparent border-2 border-white rounded-lg p-6">
-                <h2 className="text-lg font-bold text-white mb-4">Announcements</h2>
-                <ul className="space-y-3 text-sm text-white">
-                  <li>Class suspension on Sept 25 due to weather conditions.</li>
-                </ul>
+              <div className="w-full h-full bg-[#00000060] border-2 border-white rounded-lg p-6 overflow-hidden">
+                <h2 className="text-lg font-bold text-white mb-3">
+                  Announcements
+                </h2>
+
+                {announcements.length === 0 ? (
+                  <p className="text-gray-200 text-sm">No announcements yet.</p>
+                ) : (
+                  <ul className="space-y-3 text-lg text-white max-h-[70vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/40">
+                    {announcements.map((a) => (
+                      <li
+                        key={a.id}
+                        className="border border-white/30 rounded-lg p-5 hover:bg-white/20 transition"
+                      >
+                        <h4 className="font-semibold">{a.title}</h4>
+                        <p className="text-xs opacity-90 whitespace-pre-line">
+                          {a.content}
+                        </p>
+
+                        <p className="text-[10px] text-gray-300 mt-1">
+                          Expires:{" "}
+                          {new Date(a.expiration).toLocaleDateString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </motion.div>
           ) : (
@@ -248,7 +331,6 @@ export default function Login() {
                   Create Your Account
                 </h2>
 
-                {/* Our new RegisterForm */}
                 <RegisterForm onClose={() => setShowRegister(false)} />
               </div>
             </motion.div>

@@ -1,8 +1,18 @@
 import { useState, useEffect } from "react";
 import { Edit3, Trash2, CalendarDays } from "lucide-react";
-import AdminLayout from "../../components/adminLayout";
+import AdminLayout from "../../components/adminLayout"; // ✅ capitalized filename
+import { db } from "../../firebase"; // ✅ matches your firebase.js file
+import {
+  collection,
+  addDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+} from "firebase/firestore";
 
-export default function adminAnnouncement() {
+export default function AdminAnnouncement() {
   const [announcements, setAnnouncements] = useState([]);
   const [formData, setFormData] = useState({
     title: "",
@@ -10,22 +20,35 @@ export default function adminAnnouncement() {
     target: "all",
     expiration: "",
   });
-  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingId, setEditingId] = useState(null);
 
-  // Auto-update statuses
-  useEffect(() => {
-    const updated = announcements.map((a) => ({
+  const announcementRef = collection(db, "announcements");
+
+  // Fetch announcements from Firestore
+  const fetchAnnouncements = async () => {
+    const snapshot = await getDocs(announcementRef);
+    const data = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    const updated = data.map((a) => ({
       ...a,
       status: new Date(a.expiration) < new Date() ? "Expired" : "Active",
     }));
+
     setAnnouncements(updated);
-  }, [announcements.length]);
+  };
+
+  useEffect(() => {
+    fetchAnnouncements();
+  }, []);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.title || !formData.content || !formData.expiration) return;
 
@@ -33,30 +56,40 @@ export default function adminAnnouncement() {
       ...formData,
       author: "Admin",
       date: new Date().toLocaleDateString(),
+      createdAt: serverTimestamp(),
       status:
         new Date(formData.expiration) < new Date() ? "Expired" : "Active",
     };
 
-    if (editingIndex !== null) {
-      const updated = [...announcements];
-      updated[editingIndex] = newAnnouncement;
-      setAnnouncements(updated);
-      setEditingIndex(null);
-    } else {
-      setAnnouncements([...announcements, newAnnouncement]);
+    try {
+      if (editingId) {
+        const docRef = doc(db, "announcements", editingId);
+        await updateDoc(docRef, newAnnouncement);
+        setEditingId(null);
+      } else {
+        await addDoc(announcementRef, newAnnouncement);
+      }
+      setFormData({ title: "", content: "", target: "all", expiration: "" });
+      fetchAnnouncements();
+    } catch (err) {
+      console.error("Error adding announcement:", err);
     }
-
-    setFormData({ title: "", content: "", target: "all", expiration: "" });
   };
 
-  const handleEdit = (index) => {
-    setFormData(announcements[index]);
-    setEditingIndex(index);
+  const handleEdit = (announcement) => {
+    setFormData({
+      title: announcement.title,
+      content: announcement.content,
+      target: announcement.target,
+      expiration: announcement.expiration,
+    });
+    setEditingId(announcement.id);
   };
 
-  const handleDelete = (index) => {
+  const handleDelete = async (id) => {
     if (confirm("Are you sure you want to delete this announcement?")) {
-      setAnnouncements(announcements.filter((_, i) => i !== index));
+      await deleteDoc(doc(db, "announcements", id));
+      fetchAnnouncements();
     }
   };
 
@@ -139,7 +172,7 @@ export default function adminAnnouncement() {
             type="submit"
             className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white px-6 py-2 rounded-lg hover:opacity-90 transition"
           >
-            {editingIndex !== null ? "Update Announcement" : "Post Announcement"}
+            {editingId ? "Update Announcement" : "Post Announcement"}
           </button>
         </form>
 
@@ -169,9 +202,9 @@ export default function adminAnnouncement() {
                   </td>
                 </tr>
               ) : (
-                announcements.map((a, i) => (
+                announcements.map((a) => (
                   <tr
-                    key={i}
+                    key={a.id}
                     className={`border-b border-gray-100 transition ${
                       a.status === "Expired"
                         ? "bg-gray-50 opacity-80"
@@ -196,13 +229,13 @@ export default function adminAnnouncement() {
                     </td>
                     <td className="py-3 px-4 text-right space-x-3">
                       <button
-                        onClick={() => handleEdit(i)}
+                        onClick={() => handleEdit(a)}
                         className="text-blue-500 hover:text-blue-700 transition"
                       >
                         <Edit3 size={18} />
                       </button>
                       <button
-                        onClick={() => handleDelete(i)}
+                        onClick={() => handleDelete(a.id)}
                         className="text-red-500 hover:text-red-700 transition"
                       >
                         <Trash2 size={18} />
