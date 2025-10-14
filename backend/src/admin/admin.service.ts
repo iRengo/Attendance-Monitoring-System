@@ -28,56 +28,69 @@ export class AdminService {
   // ================= IMPORT CSV FUNCTION =================
   async importCSV(file: Express.Multer.File): Promise<CsvImportResponse> {
     if (!file) throw new BadRequestException('No file uploaded');
-
+  
     const rows: any[] = [];
     const responses: CsvImportResult[] = [];
-
+  
     // Determine collection type from file name
     const fileName = file.originalname.toLowerCase();
     let collectionName: 'students' | 'teachers';
     if (fileName.includes('student')) collectionName = 'students';
     else if (fileName.includes('teacher')) collectionName = 'teachers';
     else throw new BadRequestException('CSV file name must contain "student" or "teacher"');
-
+  
     return new Promise((resolve, reject) => {
       fs.createReadStream(file.path)
         .pipe(csvParser())
-        .on('data', (data) => rows.push(data))
+        .on('data', (data) => {
+          // Normalize keys to lowercase
+          const normalizedRow: any = {};
+          for (const key in data) {
+            if (Object.prototype.hasOwnProperty.call(data, key)) {
+              normalizedRow[key.toLowerCase()] = data[key]?.trim();
+            }
+          }
+          rows.push(normalizedRow);
+        })
         .on('end', async () => {
           try {
             for (const row of rows) {
-              const { firstname, middlename, lastname, personal_email } = row;
-              if (!firstname || !lastname || !personal_email) continue;
-
-              const schoolEmail = `${firstname}.${lastname}@aics.edu.ph`.toLowerCase();
+              const firstName = row['firstname'] || '';
+              const middleName = row['middlename'] || '';
+              const lastName = row['lastname'] || '';
+              const personal_email = row['personal_email'] || row['personalemail'] || '';
+  
+              if (!firstName || !lastName || !personal_email) continue;
+  
+              const schoolEmail = `${firstName}.${lastName}@aics.edu.ph`.toLowerCase();
               const tempPassword = this.generateRandomPassword();
-
+  
               try {
                 // 1️⃣ Create Firebase Auth user
                 const userRecord = await this.auth.createUser({
                   email: schoolEmail,
                   password: tempPassword,
-                  displayName: `${firstname} ${lastname}`,
+                  displayName: `${firstName} ${lastName}`,
                 });
-
+  
                 // 2️⃣ Save to Firestore collection (students or teachers)
                 await this.db.collection(collectionName).doc(userRecord.uid).set({
-                  firstname,
-                  middlename,
-                  lastname,
+                  firstName,
+                  middleName,
+                  lastName,
                   personal_email,
                   school_email: schoolEmail,
                   temp_password: tempPassword,
                   createdAt: new Date().toISOString(),
-                  status: 'approved', // optional default status
+                  status: 'approved',
                 });
-
+  
                 // 3️⃣ Send credentials via email
                 await this.sendCredentials(personal_email, schoolEmail, tempPassword);
-
+  
                 responses.push({ schoolEmail, status: 'Created', type: collectionName });
               } catch (error) {
-                console.error(`❌ Error processing ${firstname} ${lastname}:`, (error as Error).message);
+                console.error(`❌ Error processing ${firstName} ${lastName}:`, (error as Error).message);
                 responses.push({
                   schoolEmail,
                   status: 'Failed',
@@ -86,7 +99,7 @@ export class AdminService {
                 });
               }
             }
-
+  
             resolve({ success: true, results: responses });
           } catch (err) {
             reject(err);
@@ -95,6 +108,7 @@ export class AdminService {
         .on('error', (err) => reject(err));
     });
   }
+  
 
   // ================= HELPER: GENERATE PASSWORD =================
   private generateRandomPassword(length = 10): string {

@@ -34,10 +34,7 @@ export default function Login() {
       const filtered = data.filter((a) => {
         const now = new Date();
         const exp = new Date(a.expiration);
-        return (
-          (a.target === "students" || a.target === "all") &&
-          exp >= now
-        );
+        return (a.target === "students" || a.target === "all") && exp >= now;
       });
 
       filtered.sort(
@@ -52,6 +49,7 @@ export default function Login() {
     return () => unsub();
   }, []);
 
+  // ✅ LOGIN FUNCTION WITH MAINTENANCE CHECK
   const handleLogin = async (e) => {
     e.preventDefault();
 
@@ -65,36 +63,42 @@ export default function Login() {
     try {
       const emailTrimmed = email.trim().toLowerCase();
 
-      // 🔍 Check Admin collection first
+      // 🛠️ Step 1: Check if system is under maintenance
+      const maintenanceDoc = await getDoc(doc(db, "system_settings", "maintenance_mode"));
+      const isMaintenance = maintenanceDoc.exists() ? maintenanceDoc.data().enabled : false;
+
+      // 🧠 Step 2: If under maintenance, only allow admins
+      if (isMaintenance) {
+        const adminSnapshot = await getDocs(collection(db, "admins"));
+        const adminDoc = adminSnapshot.docs.find(
+          (doc) => doc.data().email === emailTrimmed
+        );
+
+        if (!adminDoc) {
+          toast.warning("System is currently under maintenance. Please try again later.");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 🔍 Step 3: Check Admin collection first
       const adminSnapshot = await getDocs(collection(db, "admins"));
       const adminDoc = adminSnapshot.docs.find(
         (doc) => doc.data().email === emailTrimmed
       );
 
       if (adminDoc) {
-        const adminData = adminDoc.data();
-        const userCredential = await signInWithEmailAndPassword(
-          auth,
-          emailTrimmed,
-          password
-        );
-
-        if (adminData.status === "active" || !adminData.status) {
-          navigate("/admin/dashboard");
-          return;
-        } else {
-          toast.warning("Admin account is inactive or unapproved.");
-          return;
-        }
+        await signInWithEmailAndPassword(auth, emailTrimmed, password);
+        navigate("/admin/dashboard");
+        return;
       }
 
-      // 🔍 If not admin, try normal users
+      // 🔍 Step 4: If not admin, check students or teachers
       const userCredential = await signInWithEmailAndPassword(
         auth,
         emailTrimmed,
         password
       );
-      const user = userCredential.user;
 
       const collections = ["students", "teachers"];
       let userDoc = null;
