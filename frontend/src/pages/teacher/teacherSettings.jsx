@@ -22,10 +22,9 @@ export default function TeacherSettings() {
 
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
   const [loading, setLoading] = useState(true);
 
-  // Fetch teacher data
+  // ✅ Fetch teacher data (case-insensitive)
   useEffect(() => {
     const fetchTeacherData = async () => {
       try {
@@ -39,8 +38,32 @@ export default function TeacherSettings() {
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-          const { firstname, middlename, lastname, school_email } = docSnap.data();
-          setTeacherData({ firstname, middlename, lastname, school_email });
+          const data = docSnap.data();
+
+          // Normalize keys to lowercase
+          const normalizedData = Object.keys(data).reduce((acc, key) => {
+            acc[key.toLowerCase()] = data[key];
+            return acc;
+          }, {});
+
+          const firstname =
+            normalizedData.firstname || normalizedData.first_name || "";
+          const middlename =
+            normalizedData.middlename || normalizedData.middle_name || "";
+          const lastname =
+            normalizedData.lastname || normalizedData.last_name || "";
+          const school_email =
+            normalizedData.school_email ||
+            normalizedData.email ||
+            normalizedData.schoolemail ||
+            "";
+
+          setTeacherData({
+            firstname,
+            middlename,
+            lastname,
+            school_email,
+          });
         } else {
           toast.error("Teacher record not found!");
         }
@@ -88,7 +111,6 @@ export default function TeacherSettings() {
 
   return (
     <TeacherLayout title="Settings">
-      {/* Tabs */}
       <div className="flex border-b border-[#415CA0] mb-6 gap-6">
         <button
           onClick={() => setActiveTab("account")}
@@ -114,9 +136,10 @@ export default function TeacherSettings() {
 
       {activeTab === "account" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Account Info */}
           <div className="lg:col-span-2 bg-white shadow-md rounded-xl p-8 border border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-800 mb-6">Account Information</h2>
+            <h2 className="text-xl font-semibold text-gray-800 mb-6">
+              Account Information
+            </h2>
 
             {loading ? (
               <p className="text-gray-500">Loading account info...</p>
@@ -165,9 +188,10 @@ export default function TeacherSettings() {
             )}
           </div>
 
-          {/* Password Section */}
           <div className="bg-white shadow-md rounded-xl p-8 border border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-800 mb-6">Change Password</h2>
+            <h2 className="text-xl font-semibold text-gray-800 mb-6">
+              Change Password
+            </h2>
             <div className="space-y-5">
               <div className="relative">
                 <label className="text-gray-600 text-sm">New Password</label>
@@ -188,7 +212,9 @@ export default function TeacherSettings() {
               </div>
 
               <div className="relative">
-                <label className="text-gray-600 text-sm">Confirm New Password</label>
+                <label className="text-gray-600 text-sm">
+                  Confirm New Password
+                </label>
                 <input
                   type={showConfirmPassword ? "text" : "password"}
                   name="confirm"
@@ -214,22 +240,6 @@ export default function TeacherSettings() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {activeTab === "profile" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-white shadow-md rounded-xl p-8 border border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-800 mb-6">Profile Info</h2>
-            <p className="text-gray-700 text-sm">
-              Full Name, Contact Info, Bio, etc. Customize your profile here.
-            </p>
-          </div>
-
-          <div className="bg-white shadow-md rounded-xl p-8 border border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-800 mb-6">Profile Picture</h2>
-            <p className="text-gray-700 text-sm">Upload or change your profile picture.</p>
           </div>
         </div>
       )}

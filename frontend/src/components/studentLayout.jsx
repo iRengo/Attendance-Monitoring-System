@@ -11,19 +11,23 @@ import {
   Bell,
   X,
   Megaphone,
+  FileText,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
-import { auth, db } from "../firebase"; // ✅ make sure your firebase.js path matches
-import { collection, onSnapshot } from "firebase/firestore";
+import { auth, db } from "../firebase";
+import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
 
 export default function StudentLayout({ title, children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showAnnouncements, setShowAnnouncements] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [announcements, setAnnouncements] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [studentId, setStudentId] = useState(null);
 
   const navItems = [
     { name: "Dashboard", path: "/student/dashboard", icon: <Home size={20} /> },
@@ -35,11 +39,18 @@ export default function StudentLayout({ title, children }) {
 
   const pathnames = location.pathname.split("/").filter((x) => x);
 
-  // ✅ Real-time Firestore Announcements
+  // ✅ Get current student's ID
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) setStudentId(user.uid);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // ✅ Listen to announcements
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "announcements"), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
       const filtered = data.filter((a) => {
         const isExpired = new Date(a.expiration) < new Date();
         return !isExpired && (a.target === "students" || a.target === "all");
@@ -47,15 +58,82 @@ export default function StudentLayout({ title, children }) {
 
       filtered.sort(
         (a, b) =>
-          new Date(b.createdAt?.toDate?.() || 0) -
-          new Date(a.createdAt?.toDate?.() || 0)
+          new Date(b.createdAt?.toDate?.() || b.createdAt || 0) -
+          new Date(a.createdAt?.toDate?.() || a.createdAt || 0)
       );
 
       setAnnouncements(filtered);
+      setUnreadCount((count) => count + filtered.length);
     });
 
     return () => unsub();
   }, []);
+
+  // ✅ Listen to posts from teacher classes
+  useEffect(() => {
+    if (!studentId) return;
+
+    const unsubStudent = onSnapshot(doc(db, "students", studentId), (snap) => {
+      if (!snap.exists()) return;
+
+      const studentData = snap.data();
+      const studentClasses = studentData.classes || [];
+      if (studentClasses.length === 0) return;
+
+      const unsubs = [];
+      let allPosts = [];
+
+      studentClasses.forEach((cls) => {
+        const { teacherId, id: classId, subjectName } = cls;
+        if (!teacherId || !classId) return;
+
+        const postsRef = collection(db, "teachers", teacherId, "classes", classId, "posts");
+
+        const unsubPosts = onSnapshot(postsRef, async (postSnap) => {
+          const teacherSnap = await getDoc(doc(db, "teachers", teacherId));
+          const teacherData = teacherSnap.exists() ? teacherSnap.data() : {};
+          const teacherName = `${teacherData.firstname || teacherData.firstName || ""} ${
+            teacherData.lastname || teacherData.lastName || ""
+          }`.trim();
+
+          const newPosts = postSnap.docs.map((doc) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              classId,
+              teacherId,
+              ...data,
+              title: `${subjectName || "Untitled Subject"} — ${teacherName || "Unknown Teacher"}`,
+              createdAt: data.timestamp || data.createdAt || null,
+            };
+          });
+
+          // ✅ Merge and sort (newest first)
+          allPosts = [...allPosts.filter((p) => p.classId !== classId), ...newPosts];
+          allPosts.sort(
+            (a, b) =>
+              new Date(b.createdAt?.toDate?.() || b.createdAt || 0) -
+              new Date(a.createdAt?.toDate?.() || a.createdAt || 0)
+          );
+
+          setPosts([...allPosts]);
+          setUnreadCount((count) => count + newPosts.length);
+        });
+
+        unsubs.push(unsubPosts);
+      });
+
+      return () => unsubs.forEach((u) => u());
+    });
+
+    return () => unsubStudent();
+  }, [studentId]);
+
+  // ✅ Reset notification count when opened
+  const handleToggleNotifications = () => {
+    setShowNotifications(!showNotifications);
+    if (!showNotifications) setUnreadCount(0);
+  };
 
   const handleLogout = async () => {
     try {
@@ -111,9 +189,7 @@ export default function StudentLayout({ title, children }) {
                 }`}
             >
               <span className="text-white">{item.icon}</span>
-              {!isCollapsed && (
-                <span className="text-white text-lg">{item.name}</span>
-              )}
+              {!isCollapsed && <span className="text-white text-lg">{item.name}</span>}
             </Link>
           ))}
         </nav>
@@ -136,59 +212,84 @@ export default function StudentLayout({ title, children }) {
           <h2 className="text-lg font-bold text-[#415CA0]">{title}</h2>
 
           <div className="flex items-center gap-6">
-            {/* 🔔 Announcements Dropdown */}
+            {/* 🔔 Notifications */}
             <div className="relative">
               <button
                 className="p-2 rounded-full hover:bg-gray-100 transition relative"
-                onClick={() => setShowAnnouncements(!showAnnouncements)}
+                onClick={handleToggleNotifications}
               >
                 <Bell size={22} className="text-[#415CA0]" />
-                {announcements.length > 0 && (
+                {unreadCount > 0 && (
                   <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full px-1">
-                    {announcements.length}
+                    {unreadCount}
                   </span>
                 )}
               </button>
 
-              {/* Announcement Panel */}
-              {showAnnouncements && (
-                <div className="absolute right-0 mt-3 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 animate-fadeIn">
+              {showNotifications && (
+                <div className="absolute right-0 mt-3 w-96 bg-white border border-gray-200 rounded-xl shadow-lg z-50 animate-fadeIn">
                   <div className="flex justify-between items-center px-4 py-3 border-b border-gray-100">
                     <h3 className="font-semibold text-[#415CA0] flex items-center gap-2">
-                      <Megaphone size={18} /> Announcements
+                      <Bell size={18} /> Notifications
                     </h3>
                     <button
-                      onClick={() => setShowAnnouncements(false)}
+                      onClick={() => setShowNotifications(false)}
                       className="text-gray-500 hover:text-gray-700"
                     >
                       <X size={16} />
                     </button>
                   </div>
 
-                  {announcements.length === 0 ? (
-                    <p className="text-gray-500 text-sm text-center py-4">
-                      No announcements yet.
-                    </p>
-                  ) : (
-                    <ul className="max-h-80 overflow-y-auto">
-                      {announcements.map((a) => (
-                        <li
+                  <div className="max-h-96 overflow-y-auto">
+                    {/* Announcements */}
+                    <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-[#415CA0] flex items-center gap-2">
+                      <Megaphone size={16} /> Announcements
+                    </div>
+                    {announcements.length === 0 ? (
+                      <p className="text-gray-500 text-sm text-center py-3">
+                        No announcements yet.
+                      </p>
+                    ) : (
+                      announcements.map((a) => (
+                        <div
                           key={a.id}
                           className="px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition"
                         >
-                          <h4 className="font-semibold text-gray-800">
-                            {a.title}
-                          </h4>
+                          <h4 className="font-semibold text-gray-800">{a.title}</h4>
+                          <p className="text-gray-600 text-sm line-clamp-2">{a.content}</p>
+                        </div>
+                      ))
+                    )}
+
+                    {/* Posts */}
+                    <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-[#415CA0] flex items-center gap-2">
+                      <FileText size={16} /> Class Posts
+                    </div>
+                    {posts.length === 0 ? (
+                      <p className="text-gray-500 text-sm text-center py-3">
+                        No class posts yet.
+                      </p>
+                    ) : (
+                      posts.map((p) => (
+                        <div
+                          key={p.id}
+                          className="px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition"
+                        >
+                          <h4 className="font-semibold text-gray-800">{p.title}</h4>
                           <p className="text-gray-600 text-sm line-clamp-2">
-                            {a.content}
+                            {p.content || "No content"}
                           </p>
                           <p className="text-xs text-gray-400 mt-1">
-                            Exp: {new Date(a.expiration).toLocaleDateString()}
+                            {p.createdAt
+                              ? new Date(
+                                  p.createdAt?.toDate?.() || p.createdAt
+                                ).toLocaleString()
+                              : "No date"}
                           </p>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -204,9 +305,7 @@ export default function StudentLayout({ title, children }) {
                 </div>
 
                 <div className="flex flex-col leading-tight">
-                  <span className="font-medium text-[#32487E]">
-                    Juan Dela Cruz
-                  </span>
+                  <span className="font-medium text-[#32487E]">Juan Dela Cruz</span>
                   <span className="text-xs text-gray-500">Student</span>
                 </div>
 
@@ -230,12 +329,9 @@ export default function StudentLayout({ title, children }) {
 
         {/* Content */}
         <div className="flex-1 p-6 bg-gray-50 mt-16 overflow-y-auto">
-          {/* Breadcrumbs */}
           <div className="w-full flex justify-end mb-4">
             <div className="text-sm text-gray-500 flex gap-1">
-              <span className="hover:underline text-[#415CA0] cursor-pointer">
-                Home
-              </span>
+              <span className="hover:underline text-[#415CA0] cursor-pointer">Home</span>
               {pathnames.map((name, index) => {
                 const isLast = index === pathnames.length - 1;
                 return (
@@ -243,9 +339,7 @@ export default function StudentLayout({ title, children }) {
                     <span>/</span>
                     <span
                       className={`capitalize ${
-                        isLast
-                          ? "text-[#415CA0] font-medium"
-                          : "text-gray-600"
+                        isLast ? "text-[#415CA0] font-medium" : "text-gray-600"
                       }`}
                     >
                       {name}

@@ -1,2 +1,33 @@
+import { Controller, Post, Body, BadRequestException, Get, Param } from '@nestjs/common';
+import { StudentService } from './student.service';
 
-  
+@Controller('student')
+export class StudentController {
+  constructor(private readonly studentService: StudentService) {}
+
+  // ---------------- Join Class ----------------
+  @Post('join-class')
+  async joinClass(@Body() body: any) {
+    const { studentId, classId } = body;
+    if (!studentId || !classId) {
+      throw new BadRequestException('Missing studentId or classId');
+    }
+    return await this.studentService.joinClassByLink(studentId, classId);
+  }
+
+  // ---------------- Leave Class ----------------
+  @Post('leave-class')
+  async leaveClass(@Body() body: any) {
+    const { studentId, classId } = body;
+    if (!studentId || !classId) {
+      throw new BadRequestException('Missing studentId or classId');
+    }
+    return await this.studentService.leaveClass(studentId, classId);
+  }
+
+  // ---------------- Get Notifications ----------------
+  @Get('notifications/:studentId')
+  async getStudentNotifications(@Param('studentId') studentId: string) {
+    return await this.studentService.getStudentNotifications(studentId);
+  }
+}
