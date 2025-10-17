@@ -5,7 +5,7 @@ import Login from "./pages/Login";
 
 import StudentDashboard from "./pages/student/studentDashboard";
 import StudentAttendance from "./pages/student/studentAttendance";
-import StudentSchedules from "./pages/student/studentSchedules";
+import StudentClasses from "./pages/student/studentClasses";
 import StudentNotifications from "./pages/student/studentNotifications";
 import StudentDataprivacy from "./pages/student/studentDataprivacy";
 import StudentSettings from "./pages/student/studentSettings";
@@ -45,7 +45,7 @@ function App() {
         {/* Student routes */}
         <Route path="/student/dashboard" element={<StudentDashboard />} />
         <Route path="/student/attendance" element={<StudentAttendance />} />
-        <Route path="/student/schedules" element={<StudentSchedules />} />
+        <Route path="/student/classes" element={<StudentClasses />} />
         <Route path="/student/notifications" element={<StudentNotifications />} />
         <Route path="/student/dataprivacy" element={<StudentDataprivacy />} />
         <Route path="/student/settings" element={<StudentSettings />} />

@@ -23,9 +23,9 @@ export class TeacherController {
   // ✅ Add Class
   @Post("add-class")
   async addClass(@Body() body: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time } = body;
-    if (!teacherId || !subjectName || !roomNumber || !section || !days || !time)
-      throw new BadRequestException("All fields are required.");
+    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
+    if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel)
+      throw new BadRequestException("All fields are required including grade level.");
     return await this.teacherService.addClass(body);
   }
 
@@ -39,9 +39,9 @@ export class TeacherController {
   // ✅ Update Class
   @Put("update-class/:classId")
   async updateClass(@Param("classId") classId: string, @Body() body: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time } = body;
-    if (!teacherId || !subjectName || !roomNumber || !section || !days || !time)
-      throw new BadRequestException("All fields are required.");
+    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
+    if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel)
+      throw new BadRequestException("All fields are required including grade level.");
     return await this.teacherService.updateClass(teacherId, classId, body);
   }
 
@@ -62,7 +62,8 @@ export class TeacherController {
       storage: diskStorage({
         destination: "./uploads",
         filename: (req, file, cb) => {
-          const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+          const uniqueSuffix =
+            Date.now() + "-" + Math.round(Math.random() * 1e9);
           cb(null, uniqueSuffix + extname(file.originalname));
         },
       }),
@@ -95,5 +96,12 @@ export class TeacherController {
     if (!teacherId || !classId)
       throw new BadRequestException("Teacher ID and Class ID are required.");
     return await this.teacherService.getClassStudents(teacherId, classId);
+  }
+
+  // ✅ NEW: Get teacher dashboard stats
+  @Get("stats")
+  async getTeacherStats(@Query("teacherId") teacherId: string) {
+    if (!teacherId) throw new BadRequestException("Teacher ID is required.");
+    return await this.teacherService.getTeacherStats(teacherId);
   }
 }

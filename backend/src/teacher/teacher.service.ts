@@ -7,9 +7,9 @@ import { Express } from "express";
 export class TeacherService {
   private db = getFirestore();
 
-  // ✅ Add Class
+  // ✅ Add Class (with grade level)
   async addClass(data: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time } = data;
+    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = data;
 
     const classData = {
       subjectName,
@@ -17,6 +17,7 @@ export class TeacherService {
       section,
       days,
       time,
+      gradeLevel,
       createdAt: new Date().toISOString(),
     };
 
@@ -30,7 +31,7 @@ export class TeacherService {
     return { success: true, id: classRef.id };
   }
 
-  // ✅ Get Classes
+  // ✅ Get Classes (includes grade level)
   async getClasses(teacherId: string) {
     const snapshot = await this.db
       .collection("teachers")
@@ -39,7 +40,10 @@ export class TeacherService {
       .orderBy("createdAt", "desc")
       .get();
 
-    const classes = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const classes = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
     return { success: true, classes };
   }
 
@@ -60,12 +64,12 @@ export class TeacherService {
       section: data.section,
       days: data.days,
       time: data.time,
+      gradeLevel: data.gradeLevel,
     };
 
-    // Update teacher's class
     await classRef.update(updatedClassData);
 
-    // Sync updates to students enrolled in this class
+    // 🔄 Sync updates to all students enrolled in that class
     const studentsSnapshot = await this.db
       .collection("teachers")
       .doc(teacherId)
@@ -104,7 +108,6 @@ export class TeacherService {
     const docSnap = await classRef.get();
     if (!docSnap.exists) throw new NotFoundException("Class not found");
 
-    // Remove class from students first
     const studentsSnapshot = await this.db
       .collection("teachers")
       .doc(teacherId)
@@ -129,12 +132,11 @@ export class TeacherService {
       }
     }
 
-    // Delete the class
     await classRef.delete();
     return { success: true, message: "Class deleted successfully" };
   }
 
-  // ✅ Add Post
+  // ✅ Add Post (unchanged)
   async addPost(
     teacherId: string,
     classId: string,
@@ -167,7 +169,7 @@ export class TeacherService {
     return { success: true, post: { id: postRef.id, ...postData } };
   }
 
-  // ✅ Get Class Posts
+  // ✅ Get Class Posts (unchanged)
   async getClassPosts(teacherId: string, classId: string) {
     const postsSnapshot = await this.db
       .collection("teachers")
@@ -178,11 +180,14 @@ export class TeacherService {
       .orderBy("timestamp", "desc")
       .get();
 
-    const posts = postsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const posts = postsSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
     return { success: true, posts };
   }
 
-  // ✅ Get Class Students
+  // ✅ Get Class Students (unchanged)
   async getClassStudents(teacherId: string, classId: string) {
     const classDoc = await this.db
       .collection("teachers")
@@ -202,7 +207,11 @@ export class TeacherService {
       .get();
 
     if (studentsSnapshot.empty)
-      return { success: true, students: [], message: "No students have joined yet." };
+      return {
+        success: true,
+        students: [],
+        message: "No students have joined yet.",
+      };
 
     const students = await Promise.all(
       studentsSnapshot.docs.map(async (doc) => {
@@ -222,5 +231,42 @@ export class TeacherService {
     );
 
     return { success: true, students };
+  }
+
+  // ✅ Get Teacher Stats (unchanged logic, includes gradeLevel in data but not counted)
+  async getTeacherStats(teacherId: string) {
+    const classesSnapshot = await this.db
+      .collection("teachers")
+      .doc(teacherId)
+      .collection("classes")
+      .get();
+
+    if (classesSnapshot.empty)
+      return { success: true, totalClasses: 0, totalStudents: 0, totalSubjects: 0 };
+
+    const subjectSet = new Set<string>();
+    const studentSet = new Set<string>();
+
+    for (const classDoc of classesSnapshot.docs) {
+      const classData = classDoc.data();
+      if (classData.subjectName) subjectSet.add(classData.subjectName.trim());
+
+      const studentsSnapshot = await this.db
+        .collection("teachers")
+        .doc(teacherId)
+        .collection("classes")
+        .doc(classDoc.id)
+        .collection("students")
+        .get();
+
+      studentsSnapshot.docs.forEach((s) => studentSet.add(s.id));
+    }
+
+    return {
+      success: true,
+      totalClasses: classesSnapshot.size,
+      totalStudents: studentSet.size,
+      totalSubjects: subjectSet.size,
+    };
   }
 }

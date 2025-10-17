@@ -21,16 +21,18 @@ export default function CurrentClasses() {
   const [showDaysDropdown, setShowDaysDropdown] = useState(false);
   const [posts, setPosts] = useState([]);
   const [newPost, setNewPost] = useState({ text: "", file: null, image: null });
-  const [dropdownOpenId, setDropdownOpenId] = useState(null); // Dropdown state
-  const [activeTab, setActiveTab] = useState("posts"); // Tab state
-  const [students, setStudents] = useState([]); // Students for people tab
+  const [dropdownOpenId, setDropdownOpenId] = useState(null);
+  const [activeTab, setActiveTab] = useState("posts");
+  const [students, setStudents] = useState([]);
   const teacherId = auth.currentUser?.uid;
 
+  // ------------------- CLASS FORM STATE -------------------
   const [classForm, setClassForm] = useState({
     id: null,
     subject: "",
     room: "",
     section: "",
+    gradeLevel: "", // NEW FIELD
     days: [],
     startTime: "",
     endTime: "",
@@ -54,7 +56,7 @@ export default function CurrentClasses() {
     fetchClasses();
   }, [teacherId]);
 
-  // ------------------- FETCH POSTS FOR SELECTED CLASS -------------------
+  // ------------------- FETCH POSTS -------------------
   useEffect(() => {
     const fetchPosts = async () => {
       if (!selectedClass || !teacherId) return;
@@ -70,31 +72,27 @@ export default function CurrentClasses() {
     fetchPosts();
   }, [selectedClass, teacherId]);
 
-
+  // ------------------- FETCH STUDENT COUNTS -------------------
   useEffect(() => {
     const fetchStudentCounts = async () => {
       if (!teacherId || classes.length === 0) return;
-  
+
       try {
         const counts = {};
         for (const cls of classes) {
           const res = await axios.get("http://localhost:3000/teacher/class-students", {
             params: { teacherId, classId: cls.id },
           });
-          if (res.data.success) {
-            counts[cls.id] = res.data.students.length;
-          } else {
-            counts[cls.id] = 0;
-          }
+          counts[cls.id] = res.data.success ? res.data.students.length : 0;
         }
         setStudentCounts(counts);
       } catch (err) {
         console.error("Error fetching student counts:", err);
       }
     };
-  
+
     fetchStudentCounts();
-  }, [classes, teacherId]);  
+  }, [classes, teacherId]);
 
   // ------------------- FETCH STUDENTS FOR SELECTED CLASS -------------------
   useEffect(() => {
@@ -105,7 +103,6 @@ export default function CurrentClasses() {
           params: { teacherId, classId: selectedClass.id },
         });
         if (res.data.success) {
-          // Map full name
           const mappedStudents = res.data.students.map((s) => ({
             ...s,
             fullName: `${s.firstName || ""} ${s.middleName || ""} ${s.lastName || ""}`.trim(),
@@ -120,7 +117,7 @@ export default function CurrentClasses() {
     fetchStudents();
   }, [selectedClass, teacherId]);
 
-  // ------------------- HELPER FUNCTIONS -------------------
+  // ------------------- HELPER: 12-HOUR TIME -------------------
   const convertTo12Hour = (time24) => {
     if (!time24) return "";
     const [hour, minute] = time24.split(":");
@@ -136,6 +133,7 @@ export default function CurrentClasses() {
       !classForm.subject.trim() ||
       !classForm.room.trim() ||
       !classForm.section.trim() ||
+      !classForm.gradeLevel ||
       classForm.days.length === 0 ||
       !classForm.startTime ||
       !classForm.endTime
@@ -153,7 +151,7 @@ export default function CurrentClasses() {
 
     try {
       if (isEditMode) {
-        // EDIT CLASS
+        // EDIT
         const res = await axios.put(
           `http://localhost:3000/teacher/update-class/${classForm.id}`,
           {
@@ -161,6 +159,7 @@ export default function CurrentClasses() {
             subjectName: classForm.subject,
             roomNumber: classForm.room,
             section: classForm.section,
+            gradeLevel: classForm.gradeLevel,
             days: daysString,
             time: fullTime,
           }
@@ -175,6 +174,7 @@ export default function CurrentClasses() {
                     subjectName: classForm.subject,
                     roomNumber: classForm.room,
                     section: classForm.section,
+                    gradeLevel: classForm.gradeLevel,
                     days: daysString,
                     time: fullTime,
                   }
@@ -184,12 +184,13 @@ export default function CurrentClasses() {
           alert("Class updated successfully!");
         }
       } else {
-        // ADD CLASS
+        // ADD
         const res = await axios.post("http://localhost:3000/teacher/add-class", {
           teacherId,
           subjectName: classForm.subject,
           roomNumber: classForm.room,
           section: classForm.section,
+          gradeLevel: classForm.gradeLevel,
           days: daysString,
           time: fullTime,
         });
@@ -202,6 +203,7 @@ export default function CurrentClasses() {
               subjectName: classForm.subject,
               roomNumber: classForm.room,
               section: classForm.section,
+              gradeLevel: classForm.gradeLevel,
               days: daysString,
               time: fullTime,
             },
@@ -216,6 +218,7 @@ export default function CurrentClasses() {
         subject: "",
         room: "",
         section: "",
+        gradeLevel: "",
         days: [],
         startTime: "",
         endTime: "",
@@ -260,6 +263,7 @@ export default function CurrentClasses() {
       subject: cls.subjectName,
       room: cls.roomNumber,
       section: cls.section,
+      gradeLevel: cls.gradeLevel || "",
       days: cls.days.split(", "),
       startTime: cls.startTime || start,
       endTime: cls.endTime || end,
@@ -269,7 +273,7 @@ export default function CurrentClasses() {
     setShowModal(true);
   };
 
-  // ------------------- COPY CLASS LINK -------------------
+  // ------------------- COPY LINK -------------------
   const handleCopyLink = (classId) => {
     const link = `${window.location.origin}/join-class/${classId}`;
     navigator.clipboard.writeText(link);
@@ -310,14 +314,14 @@ export default function CurrentClasses() {
     return (
       <TeacherLayout title={`${selectedClass.subjectName} - ${selectedClass.section}`}>
         <div className="min-h-screen bg-gray-50 p-10">
-          {/* Class Header */}
           <div className="flex justify-between items-center mb-8">
             <div>
               <h1 className="text-3xl font-bold text-[#3498db]">
                 {selectedClass.subjectName} - {selectedClass.section}
               </h1>
               <p className="text-gray-500 text-sm">
-                {selectedClass.days} | {selectedClass.time} | {selectedClass.roomNumber}
+                Grade {selectedClass.gradeLevel} | {selectedClass.days} | {selectedClass.time} |{" "}
+                {selectedClass.roomNumber}
               </p>
             </div>
             <button
@@ -357,7 +361,6 @@ export default function CurrentClasses() {
           {/* Tab Content */}
           {activeTab === "posts" ? (
             <>
-              {/* Post Input Box */}
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
                 <textarea
                   rows="3"
@@ -366,44 +369,6 @@ export default function CurrentClasses() {
                   onChange={(e) => setNewPost({ ...newPost, text: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg p-3 text-sm text-gray-800 focus:ring-2 focus:ring-[#3498db] outline-none resize-none"
                 ></textarea>
-
-                {(newPost.image || newPost.file) && (
-                  <div className="mt-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
-                    {newPost.image && (
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={URL.createObjectURL(newPost.image)}
-                            alt="Preview"
-                            className="w-20 h-20 object-cover rounded-md border"
-                          />
-                          <span className="text-sm text-gray-700 font-medium">
-                            {newPost.image.name}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => setNewPost({ ...newPost, image: null })}
-                          className="text-red-500 text-sm font-semibold hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                    {newPost.file && (
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-sm text-gray-700">
-                          📎 <span>{newPost.file.name}</span>
-                        </div>
-                        <button
-                          onClick={() => setNewPost({ ...newPost, file: null })}
-                          className="text-red-500 text-sm font-semibold hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 <div className="flex justify-between items-center mt-3">
                   <div className="flex gap-3">
@@ -439,18 +404,12 @@ export default function CurrentClasses() {
                 </div>
               </div>
 
-              {/* Post Feed */}
               <div className="space-y-5">
                 {posts.length === 0 ? (
-                  <p className="text-gray-400 text-center">
-                    No posts yet. Start by sharing something!
-                  </p>
+                  <p className="text-gray-400 text-center">No posts yet.</p>
                 ) : (
                   posts.map((post) => (
-                    <div
-                      key={post.id}
-                      className="bg-white border border-gray-200 rounded-xl shadow-sm p-5"
-                    >
+                    <div key={post.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
                       <p className="text-gray-800 mb-2">{post.content}</p>
                       {post.imageUrl && (
                         <img
@@ -478,16 +437,15 @@ export default function CurrentClasses() {
               </div>
             </>
           ) : (
-            // ---------------- PEOPLE TAB ----------------
             <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
               {students.length === 0 ? (
-                <p className="text-gray-400 text-center">No students have joined yet.</p>
+                <p className="text-gray-400 text-center">No students yet.</p>
               ) : (
                 <ul className="space-y-3">
-                  {students.map((student) => (
-                    <li key={student.id} className="flex justify-between items-center">
-                      <span className="text-gray-800">{student.fullName}</span>
-                      <span className="text-gray-500 text-sm">{student.email}</span>
+                  {students.map((s) => (
+                    <li key={s.id} className="flex justify-between items-center">
+                      <span className="text-gray-800">{s.fullName}</span>
+                      <span className="text-gray-500 text-sm">{s.email}</span>
                     </li>
                   ))}
                 </ul>
@@ -503,15 +461,10 @@ export default function CurrentClasses() {
   return (
     <TeacherLayout title="Current Classes">
       <div className="min-h-screen bg-gray-50 p-10">
-        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-10 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800 tracking-tight">
-              Current Classes
-            </h1>
-            <p className="text-gray-500 text-sm">
-              Manage your active classes and view enrolled students.
-            </p>
+            <h1 className="text-3xl font-bold text-gray-800 tracking-tight">Current Classes</h1>
+            <p className="text-gray-500 text-sm">Manage your active classes and view enrolled students.</p>
           </div>
 
           <button
@@ -521,6 +474,7 @@ export default function CurrentClasses() {
                 subject: "",
                 room: "",
                 section: "",
+                gradeLevel: "",
                 days: [],
                 startTime: "",
                 endTime: "",
@@ -534,7 +488,6 @@ export default function CurrentClasses() {
           </button>
         </div>
 
-        {/* Classes Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
           {classes.length === 0 ? (
             <p className="text-gray-400 text-center col-span-full">No classes yet.</p>
@@ -552,12 +505,12 @@ export default function CurrentClasses() {
                 </div>
 
                 <div className="mb-5 space-y-2">
-                  <span
-                    className="font-medium px-4 py-1.5 rounded-full text-sm shadow-sm inline-block"
-                    style={{ backgroundColor: "#eaf4fc", color: "#2176b8" }}
-                  >
+                  <span className="font-medium px-4 py-1.5 rounded-full text-sm shadow-sm inline-block bg-blue-50 text-blue-700">
                     {cls.section}
                   </span>
+                  <p className="text-gray-600 text-sm">
+                    <strong>Grade:</strong> {cls.gradeLevel}
+                  </p>
                   <p className="text-gray-600 text-sm">
                     <strong>Day:</strong> {cls.days}
                   </p>
@@ -569,9 +522,7 @@ export default function CurrentClasses() {
                   </p>
                 </div>
 
-
-                <div className="flex justify-between items-center relative">
-                  {/* Dropdown */}
+                <div className="flex justify-between items-center">
                   <div className="relative">
                     <button
                       onClick={() =>
@@ -638,34 +589,38 @@ export default function CurrentClasses() {
             </h2>
 
             <div className="space-y-4">
-              {/* Subject, Room, Section */}
               <input
                 type="text"
                 placeholder="Subject"
                 value={classForm.subject}
-                onChange={(e) =>
-                  setClassForm({ ...classForm, subject: e.target.value })
-                }
+                onChange={(e) => setClassForm({ ...classForm, subject: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
               />
               <input
                 type="text"
                 placeholder="Room Number"
                 value={classForm.room}
-                onChange={(e) =>
-                  setClassForm({ ...classForm, room: e.target.value })
-                }
+                onChange={(e) => setClassForm({ ...classForm, room: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
               />
               <input
                 type="text"
                 placeholder="Section"
                 value={classForm.section}
-                onChange={(e) =>
-                  setClassForm({ ...classForm, section: e.target.value })
-                }
+                onChange={(e) => setClassForm({ ...classForm, section: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
               />
+
+              {/* Grade Level Dropdown */}
+              <select
+                value={classForm.gradeLevel}
+                onChange={(e) => setClassForm({ ...classForm, gradeLevel: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-[#3498db] outline-none"
+              >
+                <option value="">Select Grade Level</option>
+                <option value="11">Grade 11</option>
+                <option value="12">Grade 12</option>
+              </select>
 
               {/* Days */}
               <div className="relative">
@@ -673,9 +628,7 @@ export default function CurrentClasses() {
                   onClick={() => setShowDaysDropdown((prev) => !prev)}
                   className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-left focus:ring-2 focus:ring-[#3498db] outline-none"
                 >
-                  {classForm.days.length > 0
-                    ? classForm.days.join(", ")
-                    : "Select Days"}
+                  {classForm.days.length > 0 ? classForm.days.join(", ") : "Select Days"}
                 </button>
                 {showDaysDropdown && (
                   <div className="absolute mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-sm z-50">
@@ -688,28 +641,26 @@ export default function CurrentClasses() {
                       "Saturday",
                       "Sunday",
                     ].map((day) => (
-                      <div key={day}>
-                        <label className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
-                          <input
-                            type="checkbox"
-                            checked={classForm.days.includes(day)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setClassForm({
-                                  ...classForm,
-                                  days: [...classForm.days, day],
-                                });
-                              } else {
-                                setClassForm({
-                                  ...classForm,
-                                  days: classForm.days.filter((d) => d !== day),
-                                });
-                              }
-                            }}
-                          />
-                          {day}
-                        </label>
-                      </div>
+                      <label
+                        key={day}
+                        className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={classForm.days.includes(day)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setClassForm({ ...classForm, days: [...classForm.days, day] });
+                            } else {
+                              setClassForm({
+                                ...classForm,
+                                days: classForm.days.filter((d) => d !== day),
+                              });
+                            }
+                          }}
+                        />
+                        {day}
+                      </label>
                     ))}
                   </div>
                 )}
@@ -720,17 +671,13 @@ export default function CurrentClasses() {
                 <input
                   type="time"
                   value={classForm.startTime}
-                  onChange={(e) =>
-                    setClassForm({ ...classForm, startTime: e.target.value })
-                  }
+                  onChange={(e) => setClassForm({ ...classForm, startTime: e.target.value })}
                   className="w-1/2 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
                 />
                 <input
                   type="time"
                   value={classForm.endTime}
-                  onChange={(e) =>
-                    setClassForm({ ...classForm, endTime: e.target.value })
-                  }
+                  onChange={(e) => setClassForm({ ...classForm, endTime: e.target.value })}
                   className="w-1/2 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
                 />
               </div>

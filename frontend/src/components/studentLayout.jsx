@@ -32,7 +32,7 @@ export default function StudentLayout({ title, children }) {
   const navItems = [
     { name: "Dashboard", path: "/student/dashboard", icon: <Home size={20} /> },
     { name: "Attendance", path: "/student/attendance", icon: <CalendarCheck size={20} /> },
-    { name: "Current Schedules", path: "/student/schedules", icon: <CalendarDays size={20} /> },
+    { name: "Current Classes", path: "/student/classes", icon: <CalendarDays size={20} /> },
     { name: "Data Privacy", path: "/student/dataprivacy", icon: <FileCheck size={20} /> },
     { name: "Settings", path: "/student/settings", icon: <Settings size={20} /> },
   ];

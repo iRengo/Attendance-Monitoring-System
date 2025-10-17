@@ -7,12 +7,11 @@ export class StudentService {
 
   // ---------------- Join Class ----------------
   async joinClassByLink(studentId: string, classId: string) {
-    // Get all teachers
     const teachersSnapshot = await this.db.collection('teachers').get();
     let teacherId: string | null = null;
     let classData: any = null;
 
-    // Find class in teacher collections
+    // 🔍 Find the class in all teachers' collections
     for (const teacherDoc of teachersSnapshot.docs) {
       const classDoc = await this.db
         .collection('teachers')
@@ -30,7 +29,7 @@ export class StudentService {
 
     if (!teacherId) throw new NotFoundException('Class not found');
 
-    // Add student to teacher's class
+    // 🔍 Check if student already joined
     const studentRef = this.db
       .collection('teachers')
       .doc(teacherId)
@@ -45,18 +44,42 @@ export class StudentService {
 
     await studentRef.set({ joinedAt: new Date().toISOString() });
 
-    // Add class to student's document with createdAt
+    // 🔍 Fetch student's main data (if any)
     const studentMainRef = this.db.collection('students').doc(studentId);
+    const studentSnap = await studentMainRef.get();
+    const studentData = studentSnap.exists ? studentSnap.data() : {};
+
+    // ✅ Prefer classData fields for accuracy
+    const gradeLevel =
+      classData?.gradeLevel ||
+      studentData?.gradeLevel ||
+      studentData?.grade ||
+      studentData?.level ||
+      'N/A';
+
+    const section =
+      classData?.section ||
+      studentData?.section ||
+      studentData?.studentSection ||
+      'N/A';
+
+    // ✅ Prepare class entry
     const studentClassEntry = {
       id: classId,
-      ...classData,
       teacherId,
-      createdAt: new Date().toISOString(), // ✅ ensure createdAt exists
+      subjectName: classData?.subjectName || 'Unknown Subject',
+      roomNumber: classData?.roomNumber || 'N/A',
+      days: classData?.days || 'N/A',
+      time: classData?.time || 'N/A',
+      gradeLevel,
+      section,
+      createdAt: new Date().toISOString(),
     };
 
+    // ✅ Add class to student's document
     await studentMainRef.set(
       { classes: FieldValue.arrayUnion(studentClassEntry) },
-      { merge: true }
+      { merge: true },
     );
 
     return {
@@ -71,7 +94,6 @@ export class StudentService {
     const teachersSnapshot = await this.db.collection('teachers').get();
     let teacherId: string | null = null;
 
-    // Find teacher for the class
     for (const teacherDoc of teachersSnapshot.docs) {
       const classDoc = await this.db
         .collection('teachers')
@@ -88,18 +110,17 @@ export class StudentService {
 
     if (!teacherId) throw new NotFoundException('Class not found');
 
-    // Remove student from teacher's class
-    const studentRef = this.db
+    // ❌ Remove from teacher’s class student list
+    await this.db
       .collection('teachers')
       .doc(teacherId)
       .collection('classes')
       .doc(classId)
       .collection('students')
-      .doc(studentId);
+      .doc(studentId)
+      .delete();
 
-    await studentRef.delete();
-
-    // Remove class from student's document
+    // ❌ Remove from student's joined classes
     const studentMainRef = this.db.collection('students').doc(studentId);
     const studentSnap = await studentMainRef.get();
 
@@ -107,7 +128,7 @@ export class StudentService {
       const studentData = studentSnap.data();
       if (studentData?.classes?.length) {
         const updatedClasses = studentData.classes.filter(
-          (cls: any) => cls.id !== classId
+          (cls: any) => cls.id !== classId,
         );
         await studentMainRef.update({ classes: updatedClasses });
       }
@@ -121,9 +142,7 @@ export class StudentService {
     const studentRef = this.db.collection('students').doc(studentId);
     const studentSnap = await studentRef.get();
 
-    if (!studentSnap.exists) {
-      throw new NotFoundException('Student not found');
-    }
+    if (!studentSnap.exists) throw new NotFoundException('Student not found');
 
     const studentData = studentSnap.data();
     const studentClasses = studentData?.classes || [];
@@ -133,14 +152,17 @@ export class StudentService {
       const classId = cls.id;
       const teacherId = cls.teacherId;
 
-      // ✅ Get teacher data
-      const teacherSnap = await this.db.collection('teachers').doc(teacherId).get();
+      const teacherSnap = await this.db
+        .collection('teachers')
+        .doc(teacherId)
+        .get();
       const teacherData = teacherSnap.exists ? teacherSnap.data() : null;
       const teacherName = teacherData
-        ? `${teacherData.firstname || teacherData.firstName || ''} ${teacherData.lastname || teacherData.lastName || ''}`.trim()
+        ? `${teacherData.firstname || teacherData.firstName || ''} ${
+            teacherData.lastname || teacherData.lastName || ''
+          }`.trim()
         : 'Unknown Teacher';
 
-      // ✅ Fetch posts in the teacher’s class
       const postsSnap = await this.db
         .collection('teachers')
         .doc(teacherId)
@@ -158,16 +180,28 @@ export class StudentService {
           content: post.content || 'No content provided.',
           createdAt: post.createdAt || new Date().toISOString(),
           classId,
+          gradeLevel: cls.gradeLevel || 'N/A',
         });
       });
     }
 
-    // ✅ Sort by latest post on top
     notifications.sort(
       (a, b) =>
-        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        new Date(b.createdAt || 0).getTime() -
+        new Date(a.createdAt || 0).getTime(),
     );
 
     return notifications;
+  }
+
+  // ---------------- Get Student Schedule ----------------
+  async getStudentSchedule(studentId: string) {
+    const studentRef = this.db.collection('students').doc(studentId);
+    const studentSnap = await studentRef.get();
+
+    if (!studentSnap.exists) throw new NotFoundException('Student not found');
+
+    const studentData = studentSnap.data();
+    return studentData?.classes || [];
   }
 }

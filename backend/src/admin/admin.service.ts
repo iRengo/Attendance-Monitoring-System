@@ -6,7 +6,6 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import * as nodemailer from 'nodemailer';
 
-// ✅ Define type for each CSV row result
 export type CsvImportResult = {
   schoolEmail: string;
   status: 'Created' | 'Failed';
@@ -14,7 +13,6 @@ export type CsvImportResult = {
   error?: string;
 };
 
-// ✅ Define return type for importCSV
 export type CsvImportResponse = {
   success: boolean;
   results: CsvImportResult[];
@@ -28,26 +26,27 @@ export class AdminService {
   // ================= IMPORT CSV FUNCTION =================
   async importCSV(file: Express.Multer.File): Promise<CsvImportResponse> {
     if (!file) throw new BadRequestException('No file uploaded');
-  
+
     const rows: any[] = [];
     const responses: CsvImportResult[] = [];
-  
+
     // Determine collection type from file name
     const fileName = file.originalname.toLowerCase();
     let collectionName: 'students' | 'teachers';
     if (fileName.includes('student')) collectionName = 'students';
     else if (fileName.includes('teacher')) collectionName = 'teachers';
     else throw new BadRequestException('CSV file name must contain "student" or "teacher"');
-  
+
     return new Promise((resolve, reject) => {
       fs.createReadStream(file.path)
         .pipe(csvParser())
         .on('data', (data) => {
-          // Normalize keys to lowercase
+          // Normalize keys to lowercase and trim
           const normalizedRow: any = {};
           for (const key in data) {
             if (Object.prototype.hasOwnProperty.call(data, key)) {
-              normalizedRow[key.toLowerCase()] = data[key]?.trim();
+              const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, '_'); // spaces → underscores
+              normalizedRow[normalizedKey] = data[key]?.trim();
             }
           }
           rows.push(normalizedRow);
@@ -56,15 +55,15 @@ export class AdminService {
           try {
             for (const row of rows) {
               const firstName = row['firstname'] || '';
-              const middleName = row['middlename'] || '';
               const lastName = row['lastname'] || '';
-              const personal_email = row['personal_email'] || row['personalemail'] || '';
-  
-              if (!firstName || !lastName || !personal_email) continue;
-  
+              const personalEmail =
+                row['personal_email'] || row['personalemail'] || row['email'] || '';
+
+              if (!firstName || !lastName || !personalEmail) continue;
+
               const schoolEmail = `${firstName}.${lastName}@aics.edu.ph`.toLowerCase();
               const tempPassword = this.generateRandomPassword();
-  
+
               try {
                 // 1️⃣ Create Firebase Auth user
                 const userRecord = await this.auth.createUser({
@@ -72,25 +71,35 @@ export class AdminService {
                   password: tempPassword,
                   displayName: `${firstName} ${lastName}`,
                 });
-  
-                // 2️⃣ Save to Firestore collection (students or teachers)
-                await this.db.collection(collectionName).doc(userRecord.uid).set({
-                  firstName,
-                  middleName,
-                  lastName,
-                  personal_email,
+
+                // 2️⃣ Dynamically include all fields from CSV
+                const dynamicData = {
+                  ...row, // all CSV columns
                   school_email: schoolEmail,
                   temp_password: tempPassword,
                   createdAt: new Date().toISOString(),
                   status: 'approved',
+                };
+
+                // 3️⃣ Save everything to Firestore
+                await this.db
+                  .collection(collectionName)
+                  .doc(userRecord.uid)
+                  .set(dynamicData, { merge: true });
+
+                // 4️⃣ Send credentials via email
+                await this.sendCredentials(personalEmail, schoolEmail, tempPassword);
+
+                responses.push({
+                  schoolEmail,
+                  status: 'Created',
+                  type: collectionName,
                 });
-  
-                // 3️⃣ Send credentials via email
-                await this.sendCredentials(personal_email, schoolEmail, tempPassword);
-  
-                responses.push({ schoolEmail, status: 'Created', type: collectionName });
               } catch (error) {
-                console.error(`❌ Error processing ${firstName} ${lastName}:`, (error as Error).message);
+                console.error(
+                  `❌ Error processing ${firstName} ${lastName}:`,
+                  (error as Error).message
+                );
                 responses.push({
                   schoolEmail,
                   status: 'Failed',
@@ -99,25 +108,34 @@ export class AdminService {
                 });
               }
             }
-  
+
             resolve({ success: true, results: responses });
           } catch (err) {
             reject(err);
+          } finally {
+            // ✅ Clean up uploaded file
+            fs.unlink(file.path, () => {});
           }
         })
         .on('error', (err) => reject(err));
     });
   }
-  
 
   // ================= HELPER: GENERATE PASSWORD =================
   private generateRandomPassword(length = 10): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const chars =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    return Array.from({ length }, () =>
+      chars[Math.floor(Math.random() * chars.length)]
+    ).join('');
   }
 
   // ================= HELPER: SEND CREDENTIALS VIA EMAIL =================
-  private async sendCredentials(personalEmail: string, schoolEmail: string, tempPassword: string) {
+  private async sendCredentials(
+    personalEmail: string,
+    schoolEmail: string,
+    tempPassword: string
+  ) {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {

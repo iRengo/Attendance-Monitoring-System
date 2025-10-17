@@ -13,26 +13,33 @@ export default function StudentSchedules() {
   const [dropdownOpenId, setDropdownOpenId] = useState(null);
   const [posts, setPosts] = useState([]);
   const [leaveModal, setLeaveModal] = useState({ open: false, classId: null });
+  const [gradeLevel, setGradeLevel] = useState(null);
   const studentId = auth.currentUser?.uid;
 
-  // Fetch student's current classes
+  // ✅ Fetch student's current classes & grade level
   useEffect(() => {
     if (!studentId) return;
-    const fetchClasses = async () => {
+    const fetchStudentData = async () => {
       try {
         const studentDoc = await getDoc(doc(db, "students", studentId));
         if (studentDoc.exists()) {
           const studentData = studentDoc.data();
           setClasses(studentData.classes || []);
+          setGradeLevel(
+            studentData.gradeLevel ||
+              studentData.grade ||
+              studentData.level ||
+              "N/A"
+          );
         }
       } catch (err) {
         console.error("Error fetching student classes:", err);
       }
     };
-    fetchClasses();
+    fetchStudentData();
   }, [studentId]);
 
-  // Fetch teacher names
+  // ✅ Fetch teacher names
   useEffect(() => {
     const fetchTeacherNames = async () => {
       const teacherIds = classes.map((cls) => cls.teacherId).filter(Boolean);
@@ -44,10 +51,12 @@ export default function StudentSchedules() {
             const teacherDoc = await getDoc(doc(db, "teachers", id));
             if (teacherDoc.exists()) {
               const t = teacherDoc.data();
-              const firstName = t.firstName ?? t.firstname ?? t.FirstName ?? "";
-              const middleName = t.middleName ?? t.middlename ?? t.MiddleName ?? "";
-              const lastName = t.lastName ?? t.lastname ?? t.LastName ?? "";
-              const fullName = `${firstName} ${middleName} ${lastName}`.replace(/\s+/g, " ").trim();
+              const firstName = t.firstName ?? t.firstname ?? "";
+              const middleName = t.middleName ?? t.middlename ?? "";
+              const lastName = t.lastName ?? t.lastname ?? "";
+              const fullName = `${firstName} ${middleName} ${lastName}`
+                .replace(/\s+/g, " ")
+                .trim();
               teacherData[id] = fullName || "Unknown Teacher";
             } else {
               teacherData[id] = "Unknown Teacher";
@@ -62,7 +71,7 @@ export default function StudentSchedules() {
     if (classes.length > 0) fetchTeacherNames();
   }, [classes]);
 
-  // Fetch posts for selected class
+  // ✅ Fetch posts for selected class
   useEffect(() => {
     if (!selectedClass || !selectedClass.teacherId || !selectedClass.id) {
       setPosts([]);
@@ -80,8 +89,14 @@ export default function StudentSchedules() {
           "posts"
         );
         const postsSnap = await getDocs(postsRef);
-        const postsData = postsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        postsData.sort((a, b) => b.timestamp - a.timestamp);
+        const postsData = postsSnap.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        postsData.sort(
+          (a, b) =>
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
         setPosts(postsData);
       } catch (err) {
         console.error("Error fetching posts:", err);
@@ -92,7 +107,7 @@ export default function StudentSchedules() {
     fetchClassPosts();
   }, [selectedClass]);
 
-  // Join class
+  // ✅ Join class
   const handleJoinLink = async () => {
     if (!joinLink.trim()) {
       alert("Please enter a valid class link.");
@@ -101,7 +116,8 @@ export default function StudentSchedules() {
 
     try {
       let classId = joinLink.trim();
-      if (joinLink.includes("/join-class/")) classId = joinLink.split("/join-class/")[1];
+      if (joinLink.includes("/join-class/"))
+        classId = joinLink.split("/join-class/")[1];
 
       const res = await axios.post("http://localhost:3000/student/join-class", {
         studentId,
@@ -110,18 +126,27 @@ export default function StudentSchedules() {
 
       if (res.data.success) {
         alert("Successfully joined the class!");
-        setClasses((prev) => [...prev, res.data.class]);
+
+        // ✅ Add the new class and immediately show gradeLevel and section
+        const joinedClass = res.data.class;
+        setClasses((prev) => [...prev, joinedClass]);
+
+        // ✅ Update grade level state if available
+        if (joinedClass.gradeLevel && joinedClass.gradeLevel !== "N/A") {
+          setGradeLevel(joinedClass.gradeLevel);
+        }
+
         setJoinLink("");
       } else {
         alert(res.data.message || "Failed to join class");
       }
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || "Failed to join class. Please check the link.");
+      alert(err.response?.data?.message || "Failed to join class.");
     }
   };
 
-  // Leave class
+  // ✅ Leave class
   const handleLeaveClass = async () => {
     const classId = leaveModal.classId;
     if (!classId) return;
@@ -145,6 +170,7 @@ export default function StudentSchedules() {
     }
   };
 
+  // ✅ Convert 24h to 12h format
   const convertTo12Hour = (time24) => {
     if (!time24) return "";
     const [hour, minute] = time24.split(":");
@@ -154,7 +180,7 @@ export default function StudentSchedules() {
     return `${hour12}:${minute} ${ampm}`;
   };
 
-  // ------------------- CLASS VIEW -------------------
+  // ==================== CLASS DETAIL VIEW ====================
   if (selectedClass) {
     return (
       <StudentLayout title={`${selectedClass.subjectName} - ${selectedClass.section}`}>
@@ -165,10 +191,15 @@ export default function StudentSchedules() {
                 {selectedClass.subjectName} - {selectedClass.section}
               </h1>
               <p className="text-gray-500 text-sm">
-                {selectedClass.days} | {selectedClass.time} | {selectedClass.roomNumber}
+                {selectedClass.days} | {selectedClass.time} |{" "}
+                {selectedClass.roomNumber}
               </p>
               <p className="text-gray-600 text-sm">
-                <strong>Teacher:</strong> {teachers[selectedClass.teacherId] || "Loading..."}
+                <strong>Grade Level:</strong> {selectedClass.gradeLevel || "N/A"}
+              </p>
+              <p className="text-gray-600 text-sm">
+                <strong>Teacher:</strong>{" "}
+                {teachers[selectedClass.teacherId] || "Loading..."}
               </p>
             </div>
             <button
@@ -205,7 +236,9 @@ export default function StudentSchedules() {
                     </a>
                   )}
                   <p className="text-xs text-gray-400 mt-2">
-                    {post.timestamp ? new Date(post.timestamp).toLocaleString() : ""}
+                    {post.timestamp
+                      ? new Date(post.timestamp).toLocaleString()
+                      : ""}
                   </p>
                 </div>
               ))}
@@ -218,7 +251,7 @@ export default function StudentSchedules() {
     );
   }
 
-  // ------------------- DEFAULT VIEW -------------------
+  // ==================== DEFAULT MY CLASSES VIEW ====================
   return (
     <StudentLayout title="My Classes">
       <div className="min-h-screen bg-gray-50 p-10">
@@ -246,7 +279,9 @@ export default function StudentSchedules() {
         <h2 className="text-xl text-gray-800 font-bold mb-4">My Classes</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
           {classes.length === 0 ? (
-            <p className="text-gray-400 text-center col-span-full">No classes yet.</p>
+            <p className="text-gray-400 text-center col-span-full">
+              No classes yet.
+            </p>
           ) : (
             classes.map((cls) => (
               <div
@@ -268,18 +303,22 @@ export default function StudentSchedules() {
                     {cls.section}
                   </span>
                   <p className="text-gray-600 text-sm">
+                    <strong>Grade Level:</strong>{" "}
+                    {cls.gradeLevel || gradeLevel || "N/A"}
+                  </p>
+                  <p className="text-gray-600 text-sm">
                     <strong>Day:</strong> {cls.days}
                   </p>
                   <p className="text-gray-600 text-sm">
                     <strong>Time:</strong> {cls.time}
                   </p>
                   <p className="text-gray-600 text-sm">
-                    <strong>Teacher:</strong> {teachers[cls.teacherId] || "Loading..."}
+                    <strong>Teacher:</strong>{" "}
+                    {teachers[cls.teacherId] || "Loading..."}
                   </p>
                 </div>
 
                 <div className="flex justify-between items-center relative">
-                  {/* Dropdown */}
                   <div className="relative">
                     <button
                       onClick={() =>
@@ -296,9 +335,7 @@ export default function StudentSchedules() {
                     {dropdownOpenId === cls.id && (
                       <div className="absolute top-10 left-0 bg-white border border-gray-200 shadow-lg rounded-lg w-40 z-50">
                         <button
-                          onClick={() =>
-                            setLeaveModal({ open: true, classId: cls.id })
-                          }
+                          onClick={() => setLeaveModal({ open: true, classId: cls.id })}
                           className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 text-sm"
                         >
                           Leave Class
