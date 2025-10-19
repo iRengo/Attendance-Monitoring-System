@@ -1,3 +1,4 @@
+// frontend/src/pages/student/StudentSettings.jsx
 import { useState, useEffect } from "react";
 import StudentLayout from "../../components/studentLayout";
 import { doc, getDoc } from "firebase/firestore";
@@ -13,18 +14,16 @@ export default function StudentSettings() {
     middlename: "",
     lastname: "",
     school_email: "",
+    profilePic: "",
   });
 
-  const [passwords, setPasswords] = useState({
-    new: "",
-    confirm: "",
-  });
-
+  const [passwords, setPasswords] = useState({ new: "", confirm: "" });
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
 
-  // ✅ Fetch student data (case-insensitive)
+  // ✅ Fetch student data
   useEffect(() => {
     const fetchStudentData = async () => {
       try {
@@ -39,31 +38,15 @@ export default function StudentSettings() {
 
         if (docSnap.exists()) {
           const data = docSnap.data();
-
-          // 🧠 Normalize all field keys to lowercase
-          const normalizedData = Object.keys(data).reduce((acc, key) => {
-            acc[key.toLowerCase()] = data[key];
-            return acc;
-          }, {});
-
-          // ✅ Support multiple possible field name formats
-          const firstname =
-            normalizedData.firstname || normalizedData.first_name || "";
-          const middlename =
-            normalizedData.middlename || normalizedData.middle_name || "";
-          const lastname =
-            normalizedData.lastname || normalizedData.last_name || "";
-          const school_email =
-            normalizedData.school_email ||
-            normalizedData.email ||
-            normalizedData.schoolemail ||
-            "";
-
           setStudentData({
-            firstname,
-            middlename,
-            lastname,
-            school_email,
+            firstname: data.firstname || "",
+            middlename: data.middlename || "",
+            lastname: data.lastname || "",
+            school_email: data.school_email || data.email || "",
+            profilePic:
+              data.profilePicBinary
+                ? `data:image/jpeg;base64,${data.profilePicBinary}`
+                : "",
           });
         } else {
           toast.error("Student record not found!");
@@ -79,17 +62,18 @@ export default function StudentSettings() {
     fetchStudentData();
   }, []);
 
-  // ✅ Handle password field changes
+  // ✅ Handle password input change
   const handlePasswordChange = (e) => {
     setPasswords({ ...passwords, [e.target.name]: e.target.value });
   };
 
-  // ✅ Update password
+  // ✅ Change password
   const handleChangePassword = async () => {
     if (!passwords.new || !passwords.confirm) {
-      toast.error("Please fill in both fields");
+      toast.error("Please fill in both password fields");
       return;
     }
+
     if (passwords.new !== passwords.confirm) {
       toast.error("Passwords do not match!");
       return;
@@ -98,12 +82,11 @@ export default function StudentSettings() {
     try {
       const user = auth.currentUser;
       if (!user) {
-        toast.error("User not logged in");
+        toast.error("User not logged in!");
         return;
       }
 
       await updatePassword(user, passwords.new);
-
       toast.success("Password updated successfully!");
       setPasswords({ new: "", confirm: "" });
     } catch (error) {
@@ -112,9 +95,53 @@ export default function StudentSettings() {
     }
   };
 
+  // ✅ Handle profile picture upload (convert to Base64)
+  const handleProfilePicChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const user = auth.currentUser;
+    if (!user) {
+      toast.error("User not logged in!");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result.split(",")[1]; // remove metadata
+
+      try {
+        setUploading(true);
+        const response = await fetch(
+          `http://localhost:3000/student/upload-profile-picture/${user.uid}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: base64String }),
+          }
+        );
+
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || "Upload failed");
+
+        setStudentData((prev) => ({
+          ...prev,
+          profilePic: `data:image/jpeg;base64,${base64String}`,
+        }));
+        toast.success("Profile picture uploaded successfully!");
+      } catch (error) {
+        console.error("Error uploading profile picture:", error);
+        toast.error("Failed to upload profile picture");
+      } finally {
+        setUploading(false);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
   return (
     <StudentLayout title="Settings">
-      {/* Tabs */}
       <div className="flex border-b border-[#415CA0] mb-6 gap-6">
         <button
           onClick={() => setActiveTab("account")}
@@ -138,66 +165,41 @@ export default function StudentSettings() {
         </button>
       </div>
 
+      {/* ✅ Account Tab */}
       {activeTab === "account" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* ✅ Account Info */}
           <div className="lg:col-span-2 bg-white shadow-md rounded-xl p-8 border border-gray-200">
             <h2 className="text-xl font-semibold text-gray-800 mb-6">
               Account Information
             </h2>
-
             {loading ? (
               <p className="text-gray-500">Loading account info...</p>
             ) : (
               <div className="space-y-5">
-                <div>
-                  <label className="text-gray-600 text-sm">First Name</label>
-                  <input
-                    type="text"
-                    value={studentData.firstname}
-                    readOnly
-                    className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-gray-600 text-sm">Middle Name</label>
-                  <input
-                    type="text"
-                    value={studentData.middlename}
-                    readOnly
-                    className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-gray-600 text-sm">Last Name</label>
-                  <input
-                    type="text"
-                    value={studentData.lastname}
-                    readOnly
-                    className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-gray-600 text-sm">Email</label>
-                  <input
-                    type="email"
-                    value={studentData.school_email}
-                    readOnly
-                    className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
-                  />
-                </div>
+                {["firstname", "middlename", "lastname", "school_email"].map(
+                  (field) => (
+                    <div key={field}>
+                      <label className="text-gray-600 text-sm capitalize">
+                        {field.replace("_", " ")}
+                      </label>
+                      <input
+                        type="text"
+                        value={studentData[field]}
+                        readOnly
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 cursor-not-allowed"
+                      />
+                    </div>
+                  )
+                )}
               </div>
             )}
           </div>
 
-          {/* ✅ Password Section */}
           <div className="bg-white shadow-md rounded-xl p-8 border border-gray-200">
             <h2 className="text-xl font-semibold text-gray-800 mb-6">
               Change Password
             </h2>
+
             <div className="space-y-5">
               <div className="relative">
                 <label className="text-gray-600 text-sm">New Password</label>
@@ -256,6 +258,7 @@ export default function StudentSettings() {
         </div>
       )}
 
+      {/* ✅ Profile Tab */}
       {activeTab === "profile" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 bg-white shadow-md rounded-xl p-8 border border-gray-200">
@@ -263,17 +266,36 @@ export default function StudentSettings() {
               Profile Info
             </h2>
             <p className="text-gray-700 text-sm">
-              Full Name, Contact Info, Bio, etc. Customize your profile here.
+              Customize your profile details here (coming soon).
             </p>
           </div>
 
-          <div className="bg-white shadow-md rounded-xl p-8 border border-gray-200">
+          <div className="bg-white shadow-md rounded-xl p-8 border border-gray-200 flex flex-col items-center">
             <h2 className="text-xl font-semibold text-gray-800 mb-6">
               Profile Picture
             </h2>
-            <p className="text-gray-700 text-sm">
-              Upload or change your profile picture.
-            </p>
+
+            <div className="flex flex-col items-center">
+              <img
+                src={
+                  studentData.profilePic ||
+                  "https://www.w3schools.com/howto/img_avatar.png"
+                }
+                alt="Profile"
+                className="w-32 h-32 rounded-full object-cover border-2 border-gray-300 mb-4"
+              />
+
+              <label className="cursor-pointer bg-[#3498db] hover:bg-[#2980b9] text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+                {uploading ? "Uploading..." : "Upload New Picture"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleProfilePicChange}
+                  disabled={uploading}
+                />
+              </label>
+            </div>
           </div>
         </div>
       )}

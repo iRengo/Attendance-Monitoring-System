@@ -1,5 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import * as path from 'path';
 
 @Injectable()
 export class StudentService {
@@ -11,7 +16,6 @@ export class StudentService {
     let teacherId: string | null = null;
     let classData: any = null;
 
-    // 🔍 Find the class in all teachers' collections
     for (const teacherDoc of teachersSnapshot.docs) {
       const classDoc = await this.db
         .collection('teachers')
@@ -29,7 +33,6 @@ export class StudentService {
 
     if (!teacherId) throw new NotFoundException('Class not found');
 
-    // 🔍 Check if student already joined
     const studentRef = this.db
       .collection('teachers')
       .doc(teacherId)
@@ -44,12 +47,10 @@ export class StudentService {
 
     await studentRef.set({ joinedAt: new Date().toISOString() });
 
-    // 🔍 Fetch student's main data (if any)
     const studentMainRef = this.db.collection('students').doc(studentId);
     const studentSnap = await studentMainRef.get();
     const studentData = studentSnap.exists ? studentSnap.data() : {};
 
-    // ✅ Prefer classData fields for accuracy
     const gradeLevel =
       classData?.gradeLevel ||
       studentData?.gradeLevel ||
@@ -63,7 +64,6 @@ export class StudentService {
       studentData?.studentSection ||
       'N/A';
 
-    // ✅ Prepare class entry
     const studentClassEntry = {
       id: classId,
       teacherId,
@@ -76,7 +76,6 @@ export class StudentService {
       createdAt: new Date().toISOString(),
     };
 
-    // ✅ Add class to student's document
     await studentMainRef.set(
       { classes: FieldValue.arrayUnion(studentClassEntry) },
       { merge: true },
@@ -110,7 +109,6 @@ export class StudentService {
 
     if (!teacherId) throw new NotFoundException('Class not found');
 
-    // ❌ Remove from teacher’s class student list
     await this.db
       .collection('teachers')
       .doc(teacherId)
@@ -120,7 +118,6 @@ export class StudentService {
       .doc(studentId)
       .delete();
 
-    // ❌ Remove from student's joined classes
     const studentMainRef = this.db.collection('students').doc(studentId);
     const studentSnap = await studentMainRef.get();
 
@@ -200,8 +197,31 @@ export class StudentService {
     const studentSnap = await studentRef.get();
 
     if (!studentSnap.exists) throw new NotFoundException('Student not found');
-
     const studentData = studentSnap.data();
     return studentData?.classes || [];
   }
+
+  // ---------------- Upload Profile Picture (Base64 Binary) ----------------
+ // ---------------- Upload Profile Picture (Base64 Binary) ----------------
+async uploadProfilePicture(studentId: string, base64Image: string) {
+  if (!base64Image) throw new BadRequestException('No image data provided');
+
+  // ✅ Remove metadata prefix if included
+  const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
+
+  // ✅ Save the Base64 binary string in Firestore
+  const studentRef = this.db.collection('students').doc(studentId);
+  await studentRef.set(
+    {
+      profilePicBinary: cleanBase64, // just binary string (smaller & cleaner)
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true },
+  );
+
+  return {
+    success: true,
+    message: 'Profile picture saved as Base64 binary successfully',
+  };
+}
 }

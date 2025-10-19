@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Post,
-  Body,
-  BadRequestException,
-  Get,
-  Param,
-} from '@nestjs/common';
+import { Controller, Post, Body, BadRequestException, Get, Param } from '@nestjs/common';
 import { StudentService } from './student.service';
 
 @Controller('student')
@@ -36,9 +29,19 @@ export class StudentController {
     return await this.studentService.getStudentNotifications(studentId);
   }
 
-  // ✅ Get Student Schedule
+  // ✅ Get Schedule
   @Get('schedule/:studentId')
   async getStudentSchedule(@Param('studentId') studentId: string) {
     return await this.studentService.getStudentSchedule(studentId);
+  }
+
+  // ✅ Upload Profile Picture (Base64 JSON)
+  @Post('upload-profile-picture/:studentId')
+  async uploadProfilePicture(
+    @Param('studentId') studentId: string,
+    @Body('image') image: string,
+  ) {
+    if (!image) throw new BadRequestException('No image data provided');
+    return await this.studentService.uploadProfilePicture(studentId, image);
   }
 }

@@ -1,7 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { FirebaseService } from './firebase.service';
 
-@Global() 
+@Global()
 @Module({
   providers: [FirebaseService],
   exports: [FirebaseService],
