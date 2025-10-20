@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from "@nestjs/common";
 import { getFirestore } from "firebase-admin/firestore";
 import * as path from "path";
 import { Express } from "express";
@@ -7,7 +11,7 @@ import { Express } from "express";
 export class TeacherService {
   private db = getFirestore();
 
-  // ✅ Add Class (with grade level)
+  // ✅ Add Class
   async addClass(data: any) {
     const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = data;
 
@@ -31,7 +35,7 @@ export class TeacherService {
     return { success: true, id: classRef.id };
   }
 
-  // ✅ Get Classes (includes grade level)
+  // ✅ Get Classes
   async getClasses(teacherId: string) {
     const snapshot = await this.db
       .collection("teachers")
@@ -47,7 +51,7 @@ export class TeacherService {
     return { success: true, classes };
   }
 
-  // ✅ Update Class (and sync to student side)
+  // ✅ Update Class
   async updateClass(teacherId: string, classId: string, data: any) {
     const classRef = this.db
       .collection("teachers")
@@ -69,15 +73,8 @@ export class TeacherService {
 
     await classRef.update(updatedClassData);
 
-    // 🔄 Sync updates to all students enrolled in that class
-    const studentsSnapshot = await this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc(classId)
-      .collection("students")
-      .get();
-
+    // 🔄 Sync updates to all enrolled students
+    const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
       const studentRef = this.db.collection("students").doc(studentId);
@@ -97,7 +94,7 @@ export class TeacherService {
     return { success: true, message: "Class updated successfully" };
   }
 
-  // ✅ Delete Class (and remove from students)
+  // ✅ Delete Class
   async deleteClass(teacherId: string, classId: string) {
     const classRef = this.db
       .collection("teachers")
@@ -108,14 +105,8 @@ export class TeacherService {
     const docSnap = await classRef.get();
     if (!docSnap.exists) throw new NotFoundException("Class not found");
 
-    const studentsSnapshot = await this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc(classId)
-      .collection("students")
-      .get();
-
+    // Remove class from students
+    const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
       const studentRef = this.db.collection("students").doc(studentId);
@@ -136,7 +127,7 @@ export class TeacherService {
     return { success: true, message: "Class deleted successfully" };
   }
 
-  // ✅ Add Post (unchanged)
+  // ✅ Add Post
   async addPost(
     teacherId: string,
     classId: string,
@@ -169,7 +160,7 @@ export class TeacherService {
     return { success: true, post: { id: postRef.id, ...postData } };
   }
 
-  // ✅ Get Class Posts (unchanged)
+  // ✅ Get Class Posts
   async getClassPosts(teacherId: string, classId: string) {
     const postsSnapshot = await this.db
       .collection("teachers")
@@ -187,7 +178,7 @@ export class TeacherService {
     return { success: true, posts };
   }
 
-  // ✅ Get Class Students (unchanged)
+  // ✅ Get Class Students
   async getClassStudents(teacherId: string, classId: string) {
     const classDoc = await this.db
       .collection("teachers")
@@ -198,14 +189,7 @@ export class TeacherService {
 
     if (!classDoc.exists) throw new NotFoundException("Class not found");
 
-    const studentsSnapshot = await this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc(classId)
-      .collection("students")
-      .get();
-
+    const studentsSnapshot = await classDoc.ref.collection("students").get();
     if (studentsSnapshot.empty)
       return {
         success: true,
@@ -233,7 +217,7 @@ export class TeacherService {
     return { success: true, students };
   }
 
-  // ✅ Get Teacher Stats (unchanged logic, includes gradeLevel in data but not counted)
+  // ✅ Dashboard Stats
   async getTeacherStats(teacherId: string) {
     const classesSnapshot = await this.db
       .collection("teachers")
@@ -251,14 +235,7 @@ export class TeacherService {
       const classData = classDoc.data();
       if (classData.subjectName) subjectSet.add(classData.subjectName.trim());
 
-      const studentsSnapshot = await this.db
-        .collection("teachers")
-        .doc(teacherId)
-        .collection("classes")
-        .doc(classDoc.id)
-        .collection("students")
-        .get();
-
+      const studentsSnapshot = await classDoc.ref.collection("students").get();
       studentsSnapshot.docs.forEach((s) => studentSet.add(s.id));
     }
 
@@ -267,6 +244,27 @@ export class TeacherService {
       totalClasses: classesSnapshot.size,
       totalStudents: studentSet.size,
       totalSubjects: subjectSet.size,
+    };
+  }
+
+  // ✅ Upload Profile Picture (Base64 Binary)
+  async uploadProfilePicture(teacherId: string, base64Image: string) {
+    if (!base64Image) throw new BadRequestException("No image data provided");
+
+    const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
+    const teacherRef = this.db.collection("teachers").doc(teacherId);
+
+    await teacherRef.set(
+      {
+        profilePicBinary: cleanBase64,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    return {
+      success: true,
+      message: "Profile picture uploaded successfully as Base64 binary",
     };
   }
 }

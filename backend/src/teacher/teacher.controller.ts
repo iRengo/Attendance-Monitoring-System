@@ -23,7 +23,8 @@ export class TeacherController {
   // ✅ Add Class
   @Post("add-class")
   async addClass(@Body() body: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
+    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } =
+      body;
     if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel)
       throw new BadRequestException("All fields are required including grade level.");
     return await this.teacherService.addClass(body);
@@ -39,7 +40,8 @@ export class TeacherController {
   // ✅ Update Class
   @Put("update-class/:classId")
   async updateClass(@Param("classId") classId: string, @Body() body: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
+    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } =
+      body;
     if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel)
       throw new BadRequestException("All fields are required including grade level.");
     return await this.teacherService.updateClass(teacherId, classId, body);
@@ -55,7 +57,7 @@ export class TeacherController {
     return await this.teacherService.deleteClass(teacherId, classId);
   }
 
-  // ✅ Add Post (file/image)
+  // ✅ Add Post (with file)
   @Post("add-post")
   @UseInterceptors(
     FileInterceptor("file", {
@@ -98,10 +100,20 @@ export class TeacherController {
     return await this.teacherService.getClassStudents(teacherId, classId);
   }
 
-  // ✅ NEW: Get teacher dashboard stats
+  // ✅ Dashboard Stats
   @Get("stats")
   async getTeacherStats(@Query("teacherId") teacherId: string) {
     if (!teacherId) throw new BadRequestException("Teacher ID is required.");
     return await this.teacherService.getTeacherStats(teacherId);
+  }
+
+  // ✅ Upload Profile Picture (Base64 Binary)
+  @Post("upload-profile-picture/:teacherId")
+  async uploadProfilePicture(
+    @Param("teacherId") teacherId: string,
+    @Body("image") image: string
+  ) {
+    if (!image) throw new BadRequestException("No image data provided.");
+    return await this.teacherService.uploadProfilePicture(teacherId, image);
   }
 }

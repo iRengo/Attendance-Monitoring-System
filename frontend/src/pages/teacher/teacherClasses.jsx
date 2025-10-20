@@ -10,7 +10,10 @@ import {
   Send,
 } from "lucide-react";
 import axios from "axios";
-import { auth } from "../../firebase";
+import Swal from "sweetalert2";
+import { doc, getDoc } from "firebase/firestore";
+import { db, auth } from "../../firebase";
+
 
 export default function CurrentClasses() {
   const [selectedClass, setSelectedClass] = useState(null);
@@ -468,20 +471,70 @@ export default function CurrentClasses() {
           </div>
 
           <button
-            onClick={() => {
-              setClassForm({
-                id: null,
-                subject: "",
-                room: "",
-                section: "",
-                gradeLevel: "",
-                days: [],
-                startTime: "",
-                endTime: "",
-              });
-              setIsEditMode(false);
-              setShowModal(true);
+            onClick={async () => {
+              const teacherId = auth.currentUser?.uid;
+              if (!teacherId) return;
+            
+              try {
+                const teacherDoc = await getDoc(doc(db, "teachers", teacherId));
+                if (!teacherDoc.exists()) {
+                  Swal.fire({
+                    icon: "error",
+                    title: "Profile Not Found",
+                    text: "Your teacher record was not found in the system.",
+                    confirmButtonColor: "#3498db",
+                  });
+                  return;
+                }
+            
+                const teacherData = teacherDoc.data();
+                const hasProfilePic = !!teacherData.profilePicBinary;
+            
+                if (!hasProfilePic) {
+                  Swal.fire({
+                    icon: "warning",
+                    title: "Profile Picture Required",
+                    html: `
+                      <p>You must upload a profile picture first before creating a class.</p>
+                      <p style="margin-top:6px;">Go to <b>Settings → Profile</b> to upload your picture.</p>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: "Upload Now",
+                    cancelButtonText: "Cancel",
+                    confirmButtonColor: "#3498db",
+                  }).then((result) => {
+                    if (result.isConfirmed) {
+                      window.location.href = "/teacher/settings"; // navigate to profile settings
+                    }
+                  });
+                  return;
+                }
+            
+                // ✅ If profile pic exists, open modal
+                setClassForm({
+                  id: null,
+                  subject: "",
+                  room: "",
+                  section: "",
+                  gradeLevel: "",
+                  days: [],
+                  startTime: "",
+                  endTime: "",
+                });
+                setIsEditMode(false);
+                setShowModal(true);
+            
+              } catch (err) {
+                console.error(err);
+                Swal.fire({
+                  icon: "error",
+                  title: "Error",
+                  text: "Failed to check profile picture.",
+                  confirmButtonColor: "#3498db",
+                });
+              }
             }}
+            
             className="flex items-center gap-2 px-5 py-2 bg-[#3498db] text-white rounded-lg text-sm font-medium hover:bg-[#2f89ca] transition"
           >
             <Plus size={18} /> Add Class

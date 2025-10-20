@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import StudentLayout from "../../components/studentLayout";
 import { MoreHorizontal } from "lucide-react";
 import axios from "axios";
+import Swal from "sweetalert2";
 import { auth, db } from "../../firebase";
 import { doc, getDoc, collection, getDocs } from "firebase/firestore";
+import { useNavigate } from "react-router-dom";
 
 export default function StudentSchedules() {
   const [joinLink, setJoinLink] = useState("");
@@ -14,6 +16,7 @@ export default function StudentSchedules() {
   const [posts, setPosts] = useState([]);
   const [leaveModal, setLeaveModal] = useState({ open: false, classId: null });
   const [gradeLevel, setGradeLevel] = useState(null);
+  const navigate = useNavigate();
   const studentId = auth.currentUser?.uid;
 
   // ✅ Fetch student's current classes & grade level
@@ -107,42 +110,97 @@ export default function StudentSchedules() {
     fetchClassPosts();
   }, [selectedClass]);
 
-  // ✅ Join class
+  // ✅ Join class (checks profile picture)
   const handleJoinLink = async () => {
     if (!joinLink.trim()) {
-      alert("Please enter a valid class link.");
+      Swal.fire({
+        icon: "warning",
+        title: "Missing Link",
+        text: "Please enter a valid class link.",
+        confirmButtonColor: "#3498db",
+      });
       return;
     }
 
     try {
+      // ✅ Check if student has profile picture
+      const studentDoc = await getDoc(doc(db, "students", studentId));
+      if (!studentDoc.exists()) {
+        Swal.fire({
+          icon: "error",
+          title: "Profile Not Found",
+          text: "Your student record was not found in the system.",
+          confirmButtonColor: "#3498db",
+        });
+        return;
+      }
+
+      const studentData = studentDoc.data();
+      const hasProfilePic = !!studentData.profilePicBinary;
+
+      if (!hasProfilePic) {
+        Swal.fire({
+          icon: "warning",
+          title: "Profile Picture Required",
+          html: `
+            <p>You must upload a profile picture first before joining a class.</p>
+            <p style="margin-top:6px;">Go to <b>Settings → Profile</b> to upload your picture.</p>
+          `,
+          showCancelButton: true,
+          confirmButtonText: "Upload Now",
+          cancelButtonText: "Cancel",
+          confirmButtonColor: "#3498db",
+        }).then((result) => {
+          if (result.isConfirmed) {
+            navigate("/student/settings");
+          }
+        });
+        return;
+      }
+
+      // ✅ Extract classId from link
       let classId = joinLink.trim();
       if (joinLink.includes("/join-class/"))
         classId = joinLink.split("/join-class/")[1];
 
+      // ✅ Send join request
       const res = await axios.post("http://localhost:3000/student/join-class", {
         studentId,
         classId,
       });
 
       if (res.data.success) {
-        alert("Successfully joined the class!");
+        Swal.fire({
+          icon: "success",
+          title: "Class Joined!",
+          text: "You have successfully joined the class.",
+          confirmButtonColor: "#3498db",
+        });
 
-        // ✅ Add the new class and immediately show gradeLevel and section
         const joinedClass = res.data.class;
         setClasses((prev) => [...prev, joinedClass]);
 
-        // ✅ Update grade level state if available
         if (joinedClass.gradeLevel && joinedClass.gradeLevel !== "N/A") {
           setGradeLevel(joinedClass.gradeLevel);
         }
 
         setJoinLink("");
       } else {
-        alert(res.data.message || "Failed to join class");
+        Swal.fire({
+          icon: "error",
+          title: "Join Failed",
+          text: res.data.message || "Unable to join the class.",
+          confirmButtonColor: "#3498db",
+        });
       }
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || "Failed to join class.");
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err.response?.data?.message || "Failed to join class.",
+        confirmButtonColor: "#3498db",
+      });
     }
   };
 
@@ -160,11 +218,21 @@ export default function StudentSchedules() {
       if (res.data.success) {
         setClasses((prev) => prev.filter((cls) => cls.id !== classId));
       } else {
-        alert(res.data.message || "Failed to leave class");
+        Swal.fire({
+          icon: "error",
+          title: "Leave Failed",
+          text: res.data.message || "Failed to leave class",
+          confirmButtonColor: "#3498db",
+        });
       }
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || "Failed to leave class.");
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err.response?.data?.message || "Failed to leave class.",
+        confirmButtonColor: "#3498db",
+      });
     } finally {
       setLeaveModal({ open: false, classId: null });
     }
@@ -183,7 +251,9 @@ export default function StudentSchedules() {
   // ==================== CLASS DETAIL VIEW ====================
   if (selectedClass) {
     return (
-      <StudentLayout title={`${selectedClass.subjectName} - ${selectedClass.section}`}>
+      <StudentLayout
+        title={`${selectedClass.subjectName} - ${selectedClass.section}`}
+      >
         <div className="min-h-screen bg-gray-50 p-10">
           <div className="flex justify-between items-center mb-8">
             <div>
@@ -195,7 +265,8 @@ export default function StudentSchedules() {
                 {selectedClass.roomNumber}
               </p>
               <p className="text-gray-600 text-sm">
-                <strong>Grade Level:</strong> {selectedClass.gradeLevel || "N/A"}
+                <strong>Grade Level:</strong>{" "}
+                {selectedClass.gradeLevel || "N/A"}
               </p>
               <p className="text-gray-600 text-sm">
                 <strong>Teacher:</strong>{" "}
@@ -322,7 +393,9 @@ export default function StudentSchedules() {
                   <div className="relative">
                     <button
                       onClick={() =>
-                        setDropdownOpenId((prev) => (prev === cls.id ? null : cls.id))
+                        setDropdownOpenId((prev) =>
+                          prev === cls.id ? null : cls.id
+                        )
                       }
                       className="p-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-blue-50 transition-all duration-200"
                     >
@@ -335,7 +408,9 @@ export default function StudentSchedules() {
                     {dropdownOpenId === cls.id && (
                       <div className="absolute top-10 left-0 bg-white border border-gray-200 shadow-lg rounded-lg w-40 z-50">
                         <button
-                          onClick={() => setLeaveModal({ open: true, classId: cls.id })}
+                          onClick={() =>
+                            setLeaveModal({ open: true, classId: cls.id })
+                          }
                           className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 text-sm"
                         >
                           Leave Class
@@ -366,9 +441,12 @@ export default function StudentSchedules() {
         {leaveModal.open && (
           <div className="fixed inset-0 flex items-center justify-center z-60">
             <div className="bg-white rounded-xl p-6 w-80 shadow-lg">
-              <h3 className="text-lg font-bold text-gray-800 mb-4">Leave Class?</h3>
+              <h3 className="text-lg font-bold text-gray-800 mb-4">
+                Leave Class?
+              </h3>
               <p className="text-gray-600 mb-6">
-                Are you sure you want to leave this class? This action cannot be undone.
+                Are you sure you want to leave this class? This action cannot be
+                undone.
               </p>
               <div className="flex justify-end gap-3">
                 <button
