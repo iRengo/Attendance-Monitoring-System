@@ -1,3 +1,4 @@
+studentAttendance
 import StudentLayout from "../../components/studentLayout";
 
 export default function studentAttendance() {
