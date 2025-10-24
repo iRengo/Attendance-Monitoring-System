@@ -1,9 +1,19 @@
 import { useState, useEffect } from "react";
 import AdminLayout from "../../components/adminLayout";
-import { collection, getDocs, doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  doc,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { db } from "../../firebase";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { logActivity } from "../../utils/logActivity"; // ✅ helper import
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -16,7 +26,7 @@ export default function UserManagement() {
   const [editModalUser, setEditModalUser] = useState(null);
   const [updating, setUpdating] = useState(false);
 
-  // Normalize keys to consistent naming
+  // Normalize keys
   const normalizeKeys = (data) => {
     const normalized = {};
     for (const key in data) {
@@ -29,11 +39,10 @@ export default function UserManagement() {
     return normalized;
   };
 
-  // Fetch minimal fields for table
+  // Fetch all users
   const fetchAllAccounts = async () => {
     try {
       setLoading(true);
-
       const [studentsSnap, teachersSnap] = await Promise.all([
         getDocs(collection(db, "students")),
         getDocs(collection(db, "teachers")),
@@ -41,15 +50,15 @@ export default function UserManagement() {
 
       const parseData = (docSnap, role) => {
         const data = normalizeKeys(docSnap.data());
-        const name =
-          `${data.firstname || ""} ${data.middlename || ""} ${data.lastname || ""}`.trim();
+        const name = `${data.firstname || ""} ${data.middlename || ""} ${
+          data.lastname || ""
+        }`.trim();
         const email = data.school_email || data.email || "—";
         return { id: docSnap.id, name, email, role };
       };
 
       const students = studentsSnap.docs.map((d) => parseData(d, "Student"));
       const teachers = teachersSnap.docs.map((d) => parseData(d, "Teacher"));
-
       setUsers([...students, ...teachers]);
     } catch (err) {
       console.error("Error fetching accounts:", err);
@@ -82,8 +91,12 @@ export default function UserManagement() {
       });
 
       const result = await res.json();
-      if (result.success) toast.success("CSV import completed!");
-      else toast.error("CSV import failed.");
+      if (result.success) {
+        toast.success("CSV import completed!");
+        await logActivity("Imported CSV file", "System");
+      } else {
+        toast.error("CSV import failed.");
+      }
 
       fetchAllAccounts();
     } catch (err) {
@@ -102,8 +115,6 @@ export default function UserManagement() {
       const snap = await getDoc(ref);
       if (snap.exists()) {
         const normalized = normalizeKeys(snap.data());
-
-        // If student, extract latest class info
         if (
           user.role.toLowerCase() === "student" &&
           normalized.classes &&
@@ -119,7 +130,6 @@ export default function UserManagement() {
             normalized.section = latestClass.section || "—";
           }
         }
-
         setViewModalUser({ id: user.id, role: user.role, ...normalized });
       } else toast.error("User not found.");
     } catch (err) {
@@ -150,7 +160,6 @@ export default function UserManagement() {
       setUpdating(true);
       const { id, role, ...rest } = editModalUser;
 
-      // Exclude sensitive fields
       const fieldsToUpdate = Object.fromEntries(
         Object.entries(rest).filter(
           ([key]) =>
@@ -162,6 +171,8 @@ export default function UserManagement() {
 
       const ref = doc(db, role.toLowerCase() + "s", id);
       await updateDoc(ref, fieldsToUpdate);
+      await logActivity(`Edited ${role} account: ${rest.firstname || "User"}`, "Admin");
+
       toast.success("User updated successfully!");
       setEditModalUser(null);
       fetchAllAccounts();
@@ -179,6 +190,8 @@ export default function UserManagement() {
     try {
       const ref = doc(db, user.role.toLowerCase() + "s", user.id);
       await deleteDoc(ref);
+      await logActivity(`Deleted ${user.role}: ${user.name}`, "Admin");
+
       toast.success("User deleted successfully!");
       fetchAllAccounts();
     } catch (err) {
@@ -187,14 +200,13 @@ export default function UserManagement() {
     }
   };
 
-  // Filter + Search
+  // Filters + Search
   const filteredUsers = users
     .filter((u) => filter === "all" || u.role.toLowerCase() === filter)
     .filter((u) =>
       Object.values(u).join(" ").toLowerCase().includes(search.toLowerCase())
     );
 
-  // Sort helper (ordered fields)
   const orderedFields = [
     "school_email",
     "firstname",
@@ -269,10 +281,7 @@ export default function UserManagement() {
               <tbody>
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan="4"
-                      className="px-6 py-3 text-center text-gray-500"
-                    >
+                    <td colSpan="4" className="px-6 py-3 text-center text-gray-500">
                       No records found
                     </td>
                   </tr>
@@ -288,22 +297,13 @@ export default function UserManagement() {
                       <td className="px-4 py-2 text-sm text-gray-800">{u.email}</td>
                       <td className="px-4 py-2 text-sm text-gray-800">{u.role}</td>
                       <td className="px-4 py-2 text-sm flex gap-3 text-gray-800">
-                        <button
-                          onClick={() => handleView(u)}
-                          className="text-blue-600 hover:underline"
-                        >
+                        <button onClick={() => handleView(u)} className="text-blue-600 hover:underline">
                           View
                         </button>
-                        <button
-                          onClick={() => handleEdit(u)}
-                          className="text-green-600 hover:underline"
-                        >
+                        <button onClick={() => handleEdit(u)} className="text-green-600 hover:underline">
                           Edit
                         </button>
-                        <button
-                          onClick={() => handleDelete(u)}
-                          className="text-red-600 hover:underline"
-                        >
+                        <button onClick={() => handleDelete(u)} className="text-red-600 hover:underline">
                           Delete
                         </button>
                       </td>

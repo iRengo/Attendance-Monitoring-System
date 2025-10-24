@@ -10,6 +10,7 @@ import {
 import { updatePassword } from "firebase/auth";
 import { toast } from "react-toastify";
 import AdminLayout from "../../components/adminLayout";
+import { logActivity } from "../../utils/logActivity"; // ✅ added
 
 export default function AdminSettings() {
   const [adminData, setAdminData] = useState(null);
@@ -76,6 +77,14 @@ export default function AdminSettings() {
     try {
       setIsMaintenance(pendingState);
       await setDoc(settingsRef, { enabled: pendingState }, { merge: true });
+
+      // ✅ Log Activity
+      await logActivity(
+        pendingState ? "Enabled Maintenance Mode" : "Disabled Maintenance Mode",
+        pendingState
+          ? "The system is now in maintenance mode. Only admins can log in."
+          : "Maintenance mode disabled. All users can access again."
+      );
 
       toast.success(
         pendingState
@@ -197,7 +206,6 @@ export default function AdminSettings() {
             ⚙️ System Preferences
           </h2>
           <div className="bg-gray-50 p-6 rounded-xl shadow-inner flex flex-col sm:flex-row items-center justify-between gap-4">
-            {/* Maintenance Mode Switch */}
             <div className="flex items-center justify-between w-full sm:w-auto gap-4">
               <span className="text-gray-700 font-medium">
                 Enable Maintenance Mode
@@ -224,9 +232,9 @@ export default function AdminSettings() {
         </section>
       </div>
 
-      {/* =============== Custom Confirmation Modal =============== */}
+      {/* =============== Confirmation Modal =============== */}
       {showConfirmModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md transform transition-all">
             <h3 className="text-xl font-semibold text-gray-800 mb-3">
               {pendingState

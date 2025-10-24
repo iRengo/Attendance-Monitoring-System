@@ -1,6 +1,13 @@
+import { useEffect, useState } from "react";
 import AdminLayout from "../../components/adminLayout";
-import { Users, BookOpen, CalendarDays, BarChart3, PlusCircle } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { Users, BookOpen, BarChart3 } from "lucide-react";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
 import {
   LineChart,
   Line,
@@ -9,15 +16,24 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import { db } from "../../firebase";
+import {
+  collection,
+  getDocs,
+  query,
+  limit,
+  onSnapshot,
+} from "firebase/firestore";
 
 export default function AdminDashboard() {
-  // --- Mock data for stats ---
-  const totalStudents = 256;
-  const totalTeachers = 18;
-  const activeClasses = 12;
+  const [totalStudents, setTotalStudents] = useState(0);
+  const [totalTeachers, setTotalTeachers] = useState(0);
+  const [activities, setActivities] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+  const totalPages = Math.ceil(activities.length / itemsPerPage);
   const attendancePercent = 92;
 
-  // --- Attendance trend data ---
   const attendanceTrends = [
     { name: "Mon", attendance: 90 },
     { name: "Tue", attendance: 95 },
@@ -26,89 +42,135 @@ export default function AdminDashboard() {
     { name: "Fri", attendance: 94 },
   ];
 
-  // --- Pie chart data (Presence vs Absence) ---
   const presenceData = [
     { name: "Present", value: 92 },
     { name: "Absent", value: 8 },
   ];
-  const COLORS = ["#4CAF50", "#F87171"]; // green & red
+  const COLORS = ["#4CAF50", "#F87171"];
 
-  // --- Recent activities data ---
-  const activities = [
-    { time: "10:30 AM", activity: "Added new student: Juan Dela Cruz" },
-    { time: "9:15 AM", activity: "Updated attendance records for Grade 10" },
-    { time: "Yesterday", activity: "Created new class: Math 101" },
-    { time: "2 days ago", activity: "Removed inactive teacher: Mr. Gomez" },
-  ];
+  useEffect(() => {
+    const fetchCounts = async () => {
+      try {
+        const studentSnap = await getDocs(collection(db, "students"));
+        const teacherSnap = await getDocs(collection(db, "teachers"));
+        setTotalStudents(studentSnap.size || 0);
+        setTotalTeachers(teacherSnap.size || 0);
+      } catch (err) {
+        console.error("Failed to fetch counts:", err);
+      }
+    };
+    fetchCounts();
+  }, []);
+
+  const parseToDate = (val) => {
+    if (!val && val !== 0) return null;
+    if (typeof val === "object" && val !== null && typeof val.toDate === "function") {
+      try {
+        return val.toDate();
+      } catch {}
+    }
+    if (typeof val === "string") {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d;
+      const num = Number(val);
+      if (!isNaN(num)) {
+        const d2 = new Date(num);
+        if (!isNaN(d2.getTime())) return d2;
+      }
+      return null;
+    }
+    if (typeof val === "number") {
+      if (val < 1e12) return new Date(val * 1000);
+      return new Date(val);
+    }
+    return null;
+  };
+
+  useEffect(() => {
+    const q = query(collection(db, "recent_activities"), limit(1000));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        try {
+          const list = snapshot.docs.map((d) => {
+            const data = d.data();
+            const raw = data.timestamp ?? data.createdAt ?? data.time ?? null;
+            const parsedDate = parseToDate(raw);
+
+            // Clean any "Admin" text or separator variations (—, -, :, etc.)
+            const cleanText = (text = "") =>
+              text.replace(/\s*[-—:]?\s*Admin\s*$/i, "").trim();
+
+            const cleanedDetails =
+              cleanText(data.details) ||
+              cleanText(data.description) ||
+              "";
+
+            const cleanedAction =
+              cleanText(data.action) ||
+              cleanText(data.title) ||
+              "Activity";
+
+
+            return {
+              id: d.id,
+              action: cleanedAction.trim(),
+              details: cleanedDetails.trim(),
+              actor: data.actor ?? "Admin",
+              parsedDate,
+            };
+          });
+
+          list.sort((a, b) => {
+            const ta = a.parsedDate ? a.parsedDate.getTime() : -Infinity;
+            const tb = b.parsedDate ? b.parsedDate.getTime() : -Infinity;
+            return tb - ta;
+          });
+
+          setActivities(list);
+        } catch (err) {
+          console.error("Failed to process activities:", err);
+        }
+      },
+      (err) => console.error("Failed to listen to recent_activities:", err)
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  const formatDate = (d) => {
+    if (!d) return "";
+    try {
+      return new Date(d).toLocaleString();
+    } catch {
+      return "";
+    }
+  };
 
   return (
     <AdminLayout title="Dashboard">
       <div className="p-6 space-y-8">
-        {/* --- Stats Cards --- */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Total Students */}
-          <div className="p-5 rounded-xl shadow-md border bg-white hover:shadow-lg transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-gray-600 text-sm font-medium">
-                  Total Students
-                </h2>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {totalStudents}
-                </p>
-              </div>
-              <Users className="text-blue-500" size={32} />
-            </div>
-          </div>
-
-          {/* Total Teachers */}
-          <div className="p-5 rounded-xl shadow-md border bg-white hover:shadow-lg transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-gray-600 text-sm font-medium">
-                  Total Teachers
-                </h2>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {totalTeachers}
-                </p>
-              </div>
-              <BookOpen className="text-yellow-500" size={32} />
-            </div>
-          </div>
-
-          {/* Active Classes Today */}
-          <div className="p-5 rounded-xl shadow-md border bg-white hover:shadow-lg transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-gray-600 text-sm font-medium">
-                  Active Classes Today
-                </h2>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {activeClasses}
-                </p>
-              </div>
-              <CalendarDays className="text-green-500" size={32} />
-            </div>
-          </div>
-
-          {/* Attendance % Today */}
-          <div className="p-5 rounded-xl shadow-md border bg-white hover:shadow-lg transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-gray-600 text-sm font-medium">
-                  Attendance % Today
-                </h2>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {attendancePercent}%
-                </p>
-              </div>
-              <BarChart3 className="text-purple-500" size={32} />
-            </div>
-          </div>
+        {/* Metrics */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <Card
+            title="Total Students"
+            value={totalStudents}
+            icon={<Users className="text-blue-500" size={32} />}
+          />
+          <Card
+            title="Total Teachers"
+            value={totalTeachers}
+            icon={<BookOpen className="text-yellow-500" size={32} />}
+          />
+          <Card
+            title="Attendance % Today"
+            value={`${attendancePercent}%`}
+            icon={<BarChart3 className="text-purple-500" size={32} />}
+          />
         </div>
 
-        {/* --- Graphs Section --- */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+         {/* --- Graphs Section --- */}
+         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Attendance Trend Graph */}
           <div className="lg:col-span-2 bg-white border rounded-xl shadow-md p-5">
             <h2 className="text-lg font-semibold text-gray-800 mb-4">
@@ -180,49 +242,92 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* --- Recent Activities & Quick Actions --- */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Recent Activities */}
-          <div className="lg:col-span-2 bg-white border rounded-xl shadow-md p-5">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">
-              🕒 Recent Activities
-            </h2>
-            <ul className="divide-y divide-gray-200">
-              {activities.map((item, index) => (
-                <li key={index} className="py-3 flex justify-between items-center">
-                  <span className="text-gray-700 text-sm">{item.activity}</span>
-                  <span className="text-gray-400 text-xs">{item.time}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {/* Recent Activities (Minimalist with Pagination) */}
+        <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">Recent Activities</h2>
 
-          {/* Action Boxes */}
-          <div className="flex flex-col gap-4">
-            {/* Add Student Box */}
-            <div className="flex-1 bg-white border rounded-xl shadow-md p-5 flex flex-col justify-center items-center hover:shadow-lg transition">
-              <PlusCircle className="text-blue-500 mb-2" size={40} />
-              <h3 className="text-md font-medium text-gray-700 mb-2">
-                Add New Student
-              </h3>
-              <button className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">
-                Add Student
-              </button>
-            </div>
+          {activities.length === 0 ? (
+            <p className="text-gray-500 text-sm">No recent activities yet.</p>
+          ) : (
+            <>
+              {/* Activity List */}
+              <ul className="divide-y divide-gray-100">
+                {activities
+                  .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                  .map((item) => (
+                    <li
+                      key={item.id}
+                      className="py-2 flex justify-between items-center text-sm"
+                    >
+                      <span className="text-gray-700">
+                        {item.action}
+                        {item.details ? `: ${item.details}` : ""}
+                      </span>
+                      <span className="text-gray-400 text-xs">
+                        {item.parsedDate ? formatDate(item.parsedDate) : ""}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
 
-            {/* Add Class Box */}
-            <div className="flex-1 bg-white border rounded-xl shadow-md p-5 flex flex-col justify-center items-center hover:shadow-lg transition">
-              <PlusCircle className="text-green-500 mb-2" size={40} />
-              <h3 className="text-md font-medium text-gray-700 mb-2">
-                Add New Class
-              </h3>
-              <button className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition">
-                Add Class
-              </button>
-            </div>
-          </div>
+              {/* Pagination Controls */}
+              <div className="flex justify-center items-center gap-2 mt-4">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1}
+                  className={`text-sm px-2 py-1 rounded transition ${
+                    currentPage === 1
+                      ? "text-gray-400 cursor-not-allowed"
+                      : "text-gray-700 hover:text-blue-600"
+                  }`}
+                >
+                  Prev
+                </button>
+
+                {Array.from({ length: totalPages }, (_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentPage(i + 1)}
+                    className={`text-sm px-2 py-1 rounded transition ${
+                      currentPage === i + 1
+                        ? "bg-blue-500 text-white"
+                        : "text-gray-700 hover:text-blue-600"
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className={`text-sm px-2 py-1 rounded transition ${
+                    currentPage === totalPages
+                      ? "text-gray-400 cursor-not-allowed"
+                      : "text-gray-700 hover:text-blue-600"
+                  }`}
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </AdminLayout>
+  );
+}
+
+function Card({ title, value, icon }) {
+  return (
+    <div className="p-5 rounded-xl shadow-md border bg-white hover:shadow-lg transition">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-gray-600 text-sm font-medium">{title}</h2>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+        </div>
+        {icon}
+      </div>
+    </div>
   );
 }

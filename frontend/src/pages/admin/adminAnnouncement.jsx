@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Edit3, Trash2, CalendarDays } from "lucide-react";
-import AdminLayout from "../../components/adminLayout"; // ✅ capitalized filename
-import { db } from "../../firebase"; // ✅ matches your firebase.js file
+import AdminLayout from "../../components/adminLayout";
+import { db } from "../../firebase";
 import {
   collection,
   addDoc,
@@ -11,6 +11,7 @@ import {
   doc,
   serverTimestamp,
 } from "firebase/firestore";
+import { logActivity } from "../../utils/logActivity"; // ✅ added
 
 export default function AdminAnnouncement() {
   const [announcements, setAnnouncements] = useState([]);
@@ -65,14 +66,28 @@ export default function AdminAnnouncement() {
       if (editingId) {
         const docRef = doc(db, "announcements", editingId);
         await updateDoc(docRef, newAnnouncement);
+
+        // ✅ Log update activity
+        await logActivity(
+          "Updated Announcement",
+          `Updated announcement titled "${formData.title}".`
+        );
+
         setEditingId(null);
       } else {
         await addDoc(announcementRef, newAnnouncement);
+
+        // ✅ Log new announcement
+        await logActivity(
+          "Created Announcement",
+          `Posted new announcement titled "${formData.title}".`
+        );
       }
+
       setFormData({ title: "", content: "", target: "all", expiration: "" });
       fetchAnnouncements();
     } catch (err) {
-      console.error("Error adding announcement:", err);
+      console.error("Error adding/updating announcement:", err);
     }
   };
 
@@ -88,8 +103,20 @@ export default function AdminAnnouncement() {
 
   const handleDelete = async (id) => {
     if (confirm("Are you sure you want to delete this announcement?")) {
-      await deleteDoc(doc(db, "announcements", id));
-      fetchAnnouncements();
+      try {
+        const announcement = announcements.find((a) => a.id === id);
+        await deleteDoc(doc(db, "announcements", id));
+
+        // ✅ Log delete activity
+        await logActivity(
+          "Deleted Announcement",
+          `Deleted announcement titled "${announcement?.title || "Untitled"}".`
+        );
+
+        fetchAnnouncements();
+      } catch (error) {
+        console.error("Error deleting announcement:", error);
+      }
     }
   };
 
