@@ -136,7 +136,10 @@ export default function StudentSchedules() {
       }
 
       const studentData = studentDoc.data();
-      const hasProfilePic = !!studentData.profilePicBinary;
+
+      // ✅ Updated check for Cloudinary profile picture
+      const hasProfilePic =
+        !!studentData.profilePicBinary || !!studentData.profilePicUrl;
 
       if (!hasProfilePic) {
         Swal.fire({

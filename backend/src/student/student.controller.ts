@@ -1,5 +1,16 @@
-import { Controller, Post, Body, BadRequestException, Get, Param } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Param,
+  BadRequestException,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
 import { StudentService } from './student.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { storage } from '../cloudinary.config';
 
 @Controller('student')
 export class StudentController {
@@ -35,13 +46,14 @@ export class StudentController {
     return await this.studentService.getStudentSchedule(studentId);
   }
 
-  // ✅ Upload Profile Picture (Base64 JSON)
+  // ✅ Upload Profile Picture (Actual Image)
   @Post('upload-profile-picture/:studentId')
+  @UseInterceptors(FileInterceptor('file', { storage }))
   async uploadProfilePicture(
     @Param('studentId') studentId: string,
-    @Body('image') image: string,
+    @UploadedFile() file: Express.Multer.File,
   ) {
-    if (!image) throw new BadRequestException('No image data provided');
-    return await this.studentService.uploadProfilePicture(studentId, image);
+    if (!file) throw new BadRequestException('No file uploaded');
+    return this.studentService.saveProfilePicture(studentId, file.path);
   }
 }

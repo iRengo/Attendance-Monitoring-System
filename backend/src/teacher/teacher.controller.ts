@@ -57,26 +57,13 @@ export class TeacherController {
     return await this.teacherService.deleteClass(teacherId, classId);
   }
 
-  // ✅ Add Post (with file)
   @Post("add-post")
-  @UseInterceptors(
-    FileInterceptor("file", {
-      storage: diskStorage({
-        destination: "./uploads",
-        filename: (req, file, cb) => {
-          const uniqueSuffix =
-            Date.now() + "-" + Math.round(Math.random() * 1e9);
-          cb(null, uniqueSuffix + extname(file.originalname));
-        },
-      }),
-    })
-  )
-  async addPost(@UploadedFile() file: any, @Body() body: any) {
-    const { teacherId, classId, content } = body;
-    if (!teacherId || !classId || !content)
+  async addPost(@Body() body: any) {
+    const { teacherId, classId, content, file, image } = body;
+    if (!teacherId || !classId || (!content && !file && !image))
       throw new BadRequestException("Missing required fields.");
-    return await this.teacherService.addPost(teacherId, classId, content, file);
-  }
+    return await this.teacherService.addPost(teacherId, classId, content, file, image);
+  }  
 
   // ✅ Get Class Posts
   @Get("class-posts")

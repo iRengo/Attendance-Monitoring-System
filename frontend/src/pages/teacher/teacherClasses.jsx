@@ -289,19 +289,26 @@ export default function CurrentClasses() {
       alert("Please write something or attach a file/image.");
       return;
     }
-
+  
     try {
-      const formData = new FormData();
-      formData.append("teacherId", teacherId);
-      formData.append("classId", selectedClass.id);
-      formData.append("content", newPost.text);
-      if (newPost.image) formData.append("image", newPost.image);
-      if (newPost.file) formData.append("file", newPost.file);
-
-      const res = await axios.post("http://localhost:3000/teacher/add-post", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-
+      const toBase64 = (file) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result.split(",")[1]); // remove data:*/*;base64,
+          reader.onerror = (err) => reject(err);
+        });
+      
+      const payload = {
+        teacherId,
+        classId: selectedClass.id,
+        content: newPost.text,
+        file: newPost.file ? await toBase64(newPost.file) : null,
+        image: newPost.image ? await toBase64(newPost.image) : null,
+      };      
+  
+      const res = await axios.post("http://localhost:3000/teacher/add-post", payload);
+  
       if (res.data.success) {
         setPosts((prev) => [res.data.post, ...prev]);
         setNewPost({ text: "", file: null, image: null });
@@ -311,6 +318,7 @@ export default function CurrentClasses() {
       alert("Failed to post.");
     }
   };
+  
 
   // ------------------- SELECTED CLASS VIEW -------------------
   if (selectedClass) {
@@ -392,7 +400,21 @@ export default function CurrentClasses() {
                       <input
                         type="file"
                         accept=".pdf,.doc,.docx,.ppt,.pptx,.txt"
-                        onChange={(e) => setNewPost({ ...newPost, file: e.target.files[0] })}
+                        onChange={async (e) => {
+                          const file = e.target.files[0];
+                          if (!file) return;
+
+                          const toBase64 = (file) =>
+                            new Promise((resolve, reject) => {
+                              const reader = new FileReader();
+                              reader.readAsDataURL(file);
+                              reader.onload = () => resolve(reader.result.split(",")[1]); // remove "data:*/*;base64,"
+                              reader.onerror = (error) => reject(error);
+                            });
+
+                          const base64 = await toBase64(file);
+                          setNewPost({ ...newPost, file: base64 });
+                        }}
                         className="hidden"
                       />
                     </label>
@@ -414,9 +436,9 @@ export default function CurrentClasses() {
                   posts.map((post) => (
                     <div key={post.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
                       <p className="text-gray-800 mb-2">{post.content}</p>
-                      {post.imageUrl && (
+                      {post.imageBinary && (
                         <img
-                          src={post.imageUrl}
+                          src={`data:image/png;base64,${post.imageBinary}`}
                           alt="Post"
                           className="rounded-lg w-full max-h-80 object-cover mb-2"
                         />

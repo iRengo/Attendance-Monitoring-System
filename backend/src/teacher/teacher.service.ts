@@ -128,37 +128,34 @@ export class TeacherService {
   }
 
   // ✅ Add Post
-  async addPost(
-    teacherId: string,
-    classId: string,
-    content: string,
-    file?: Express.Multer.File
-  ) {
-    let fileUrl: string | null = null;
-    if (file) fileUrl = path.join("uploads", file.filename);
-
-    const postData = {
-      teacherId,
-      content,
-      fileUrl: fileUrl ? `http://localhost:3000/${fileUrl}` : null,
-      imageUrl:
-        file?.mimetype?.startsWith("image/") && fileUrl
-          ? `http://localhost:3000/${fileUrl}`
-          : null,
-      timestamp: new Date().toISOString(),
-    };
-
-    const postRef = this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc(classId)
-      .collection("posts")
-      .doc();
-
-    await postRef.set(postData);
-    return { success: true, post: { id: postRef.id, ...postData } };
-  }
+    async addPost(
+      teacherId: string,
+      classId: string,
+      content: string,
+      fileBase64?: string,
+      imageBase64?: string
+    ) {
+      const postData: any = {
+        teacherId,
+        content: content || "",
+        fileBinary: fileBase64 || null,
+        imageBinary: imageBase64 || null,
+        timestamp: new Date().toISOString(),
+      };
+    
+      const postRef = this.db
+        .collection("teachers")
+        .doc(teacherId)
+        .collection("classes")
+        .doc(classId)
+        .collection("posts")
+        .doc();
+    
+      await postRef.set(postData);
+      return { success: true, post: { id: postRef.id, ...postData } };
+    }
+    
+  
 
   // ✅ Get Class Posts
   async getClassPosts(teacherId: string, classId: string) {

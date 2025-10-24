@@ -1,10 +1,5 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import * as path from 'path';
 
 @Injectable()
 export class StudentService {
@@ -201,27 +196,21 @@ export class StudentService {
     return studentData?.classes || [];
   }
 
-  // ---------------- Upload Profile Picture (Base64 Binary) ----------------
- // ---------------- Upload Profile Picture (Base64 Binary) ----------------
-async uploadProfilePicture(studentId: string, base64Image: string) {
-  if (!base64Image) throw new BadRequestException('No image data provided');
+  // ---------------- Save Profile Picture ----------------
+  async saveProfilePicture(studentId: string, imageUrl: string) {
+    const studentRef = this.db.collection('students').doc(studentId);
+    await studentRef.set(
+      {
+        profilePicUrl: imageUrl,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
 
-  // ✅ Remove metadata prefix if included
-  const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
-
-  // ✅ Save the Base64 binary string in Firestore
-  const studentRef = this.db.collection('students').doc(studentId);
-  await studentRef.set(
-    {
-      profilePicBinary: cleanBase64, // just binary string (smaller & cleaner)
-      updatedAt: new Date().toISOString(),
-    },
-    { merge: true },
-  );
-
-  return {
-    success: true,
-    message: 'Profile picture saved as Base64 binary successfully',
-  };
-}
+    return {
+      success: true,
+      message: 'Profile picture uploaded successfully',
+      imageUrl,
+    };
+  }
 }
