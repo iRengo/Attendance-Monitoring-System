@@ -28,6 +28,7 @@ export default function StudentLayout({ title, children }) {
   const [posts, setPosts] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [studentId, setStudentId] = useState(null);
+  const [studentData, setStudentData] = useState(null);
 
   const navItems = [
     { name: "Dashboard", path: "/student/dashboard", icon: <Home size={20} /> },
@@ -39,10 +40,19 @@ export default function StudentLayout({ title, children }) {
 
   const pathnames = location.pathname.split("/").filter((x) => x);
 
-  // ✅ Get current student's ID
+  // ✅ Get current student's ID and fetch Firestore data
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (user) setStudentId(user.uid);
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        setStudentId(user.uid);
+
+        // Fetch student data
+        const studentRef = doc(db, "students", user.uid);
+        const studentSnap = await getDoc(studentRef);
+        if (studentSnap.exists()) {
+          setStudentData(studentSnap.data());
+        }
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -69,7 +79,7 @@ export default function StudentLayout({ title, children }) {
     return () => unsub();
   }, []);
 
-  // ✅ Listen to posts from teacher classes
+  // ✅ Listen to class posts
   useEffect(() => {
     if (!studentId) return;
 
@@ -108,7 +118,7 @@ export default function StudentLayout({ title, children }) {
             };
           });
 
-          // ✅ Merge and sort (newest first)
+          // ✅ Merge and sort
           allPosts = [...allPosts.filter((p) => p.classId !== classId), ...newPosts];
           allPosts.sort(
             (a, b) =>
@@ -129,7 +139,7 @@ export default function StudentLayout({ title, children }) {
     return () => unsubStudent();
   }, [studentId]);
 
-  // ✅ Reset notification count when opened
+  // ✅ Reset notifications
   const handleToggleNotifications = () => {
     setShowNotifications(!showNotifications);
     if (!showNotifications) setUnreadCount(0);
@@ -137,12 +147,26 @@ export default function StudentLayout({ title, children }) {
 
   const handleLogout = async () => {
     try {
+      localStorage.setItem("manualLogout", "true");
+      localStorage.removeItem("user");
       await signOut(auth);
       navigate("/");
     } catch (err) {
       console.error("Logout error:", err);
     }
   };
+  
+
+  const fullName = studentData
+    ? `${studentData.firstname || ""} ${studentData.middlename?.charAt(0) || ""}. ${
+        studentData.lastname || ""
+      }`.trim()
+    : "Student";
+
+  const profileInitial =
+    studentData?.firstname?.charAt(0)?.toUpperCase() || "S";
+
+  const profilePicUrl = studentData?.profilePicUrl || null;
 
   return (
     <div className="flex h-screen w-screen">
@@ -294,18 +318,26 @@ export default function StudentLayout({ title, children }) {
               )}
             </div>
 
-            {/* Profile Menu */}
+            {/* 👤 Profile Menu */}
             <div className="relative">
               <div
                 className="flex items-center gap-4 cursor-pointer bg-white px-3 py-1 border hover:bg-[#F0F4FF] transition"
                 onClick={() => setMenuOpen((o) => !o)}
               >
-                <div className="h-10 w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold ">
-                  J
-                </div>
+                {profilePicUrl ? (
+                  <img
+                    src={profilePicUrl}
+                    alt="Profile"
+                    className="h-10 w-10 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="h-10 w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold rounded-full">
+                    {profileInitial}
+                  </div>
+                )}
 
                 <div className="flex flex-col leading-tight">
-                  <span className="font-medium text-[#32487E]">Juan Dela Cruz</span>
+                  <span className="font-medium text-[#32487E]">{fullName}</span>
                   <span className="text-xs text-gray-500">Student</span>
                 </div>
 

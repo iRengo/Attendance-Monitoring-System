@@ -13,8 +13,7 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { TeacherService } from "./teacher.service";
-import { diskStorage } from "multer";
-import { extname } from "path";
+import { storage } from "../cloudinary.config";
 
 @Controller("teacher")
 export class TeacherController {
@@ -58,12 +57,24 @@ export class TeacherController {
   }
 
   @Post("add-post")
-  async addPost(@Body() body: any) {
-    const { teacherId, classId, content, file, image } = body;
-    if (!teacherId || !classId || (!content && !file && !image))
-      throw new BadRequestException("Missing required fields.");
-    return await this.teacherService.addPost(teacherId, classId, content, file, image);
-  }  
+async addPost(@Body() body: any) {
+  const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = body;
+
+  if (!teacherId || !classId || (!content && !fileUrl && !imageUrl)) {
+    throw new BadRequestException("Post must include text, image, or file.");
+  }
+
+  return await this.teacherService.addPost({
+    teacherId,
+    classId,
+    content,
+    fileUrl,
+    imageUrl,
+    fileName,
+    fileType,
+  });
+}
+  
 
   // ✅ Get Class Posts
   @Get("class-posts")
@@ -96,11 +107,13 @@ export class TeacherController {
 
   // ✅ Upload Profile Picture (Base64 Binary)
   @Post("upload-profile-picture/:teacherId")
+  @UseInterceptors(FileInterceptor("file", { storage }))
   async uploadProfilePicture(
     @Param("teacherId") teacherId: string,
-    @Body("image") image: string
+    @UploadedFile() file: Express.Multer.File,
   ) {
-    if (!image) throw new BadRequestException("No image data provided.");
-    return await this.teacherService.uploadProfilePicture(teacherId, image);
+    if (!file) throw new BadRequestException("No file uploaded");
+    // file.path should be the Cloudinary URL or public path depending on your cloudinary storage implementation
+    return await this.teacherService.saveProfilePicture(teacherId, file.path);
   }
 }

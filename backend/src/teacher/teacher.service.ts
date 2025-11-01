@@ -4,8 +4,6 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { getFirestore } from "firebase-admin/firestore";
-import * as path from "path";
-import { Express } from "express";
 
 @Injectable()
 export class TeacherService {
@@ -128,34 +126,37 @@ export class TeacherService {
   }
 
   // ✅ Add Post
-    async addPost(
-      teacherId: string,
-      classId: string,
-      content: string,
-      fileBase64?: string,
-      imageBase64?: string
-    ) {
-      const postData: any = {
-        teacherId,
-        content: content || "",
-        fileBinary: fileBase64 || null,
-        imageBinary: imageBase64 || null,
-        timestamp: new Date().toISOString(),
-      };
-    
-      const postRef = this.db
-        .collection("teachers")
-        .doc(teacherId)
-        .collection("classes")
-        .doc(classId)
-        .collection("posts")
-        .doc();
-    
-      await postRef.set(postData);
-      return { success: true, post: { id: postRef.id, ...postData } };
-    }
-    
-  
+  // ✅ Add Post (nested under each class)
+async addPost(data: any) {
+  const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = data;
+
+  if (!teacherId || !classId) {
+    throw new BadRequestException("Missing teacherId or classId");
+  }
+
+  const post = {
+    teacherId,
+    classId,
+    content,
+    fileUrl: fileUrl || null,
+    imageUrl: imageUrl || null,
+    fileName: fileName || null,
+    fileType: fileType || null,
+    timestamp: new Date().toISOString(),
+  };
+
+  // ✅ Store inside teacher's class posts collection:
+  const postRef = await this.db
+    .collection("teachers")
+    .doc(teacherId)
+    .collection("classes")
+    .doc(classId)
+    .collection("posts")
+    .add(post);
+
+  return { success: true, post: { id: postRef.id, ...post } };
+}
+
 
   // ✅ Get Class Posts
   async getClassPosts(teacherId: string, classId: string) {
@@ -245,23 +246,22 @@ export class TeacherService {
   }
 
   // ✅ Upload Profile Picture (Base64 Binary)
-  async uploadProfilePicture(teacherId: string, base64Image: string) {
-    if (!base64Image) throw new BadRequestException("No image data provided");
+  async saveProfilePicture(teacherId: string, imageUrl: string) {
+      if (!imageUrl) throw new BadRequestException("No image URL provided");
 
-    const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
-    const teacherRef = this.db.collection("teachers").doc(teacherId);
+      const teacherRef = this.db.collection("teachers").doc(teacherId);
+      await teacherRef.set(
+        {
+          profilePicUrl: imageUrl,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
-    await teacherRef.set(
-      {
-        profilePicBinary: cleanBase64,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-
-    return {
-      success: true,
-      message: "Profile picture uploaded successfully as Base64 binary",
-    };
+      return {
+        success: true,
+        message: "Profile picture uploaded successfully",
+        imageUrl,
+      };
+    }
   }
-}

@@ -7,11 +7,21 @@
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.5.25",
     "lucide-react": "^0.544.0",
     "pg": "^8.16.3",
     "react-google-recaptcha": "^3.1.0"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "nodemon": "^3.1.10"
+  },
+  "scripts": {
+    "server": "cd backend && npm run start:dev",
+    "client": "cd frontend && npm run dev",
+    "python": "python main.py",
+    "start": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"npm run server\" \"npm run client\"",
+    "dev": "concurrently -n \"PYTHON,SERVER,CLIENT\" -c \"yellow,blue,green\" \"npm run python\" \"npm run server\" \"npm run client\""
   }
 }

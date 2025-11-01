@@ -1,0 +1,130 @@
+import React from "react";
+import { X } from "lucide-react";
+
+export default function ClassModal({
+  showModal,
+  setShowModal,
+  classForm,
+  setClassForm,
+  showDaysDropdown,
+  setShowDaysDropdown,
+  handleSaveClass,
+  isEditMode,
+  loading,
+}) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center text-gray-800 bg-black/40 backdrop-blur-sm z-50">
+      <div className="bg-white rounded-2xl shadow-xl w-11/12 max-w-md p-8 relative">
+        <button
+          onClick={() => setShowModal(false)}
+          className="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition"
+        >
+          <X size={22} />
+        </button>
+        <h2 className="text-xl font-semibold text-[#3498db] mb-6">
+          {isEditMode ? "Edit Class" : "Add New Class"}
+        </h2>
+
+        <div className="space-y-4">
+          <input
+            type="text"
+            placeholder="Subject"
+            value={classForm.subject}
+            onChange={(e) => setClassForm({ ...classForm, subject: e.target.value })}
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
+          />
+          <input
+            type="text"
+            placeholder="Room Number"
+            value={classForm.room}
+            onChange={(e) => setClassForm({ ...classForm, room: e.target.value })}
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
+          />
+          <input
+            type="text"
+            placeholder="Section"
+            value={classForm.section}
+            onChange={(e) => setClassForm({ ...classForm, section: e.target.value })}
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
+          />
+
+          <select
+            value={classForm.gradeLevel}
+            onChange={(e) => setClassForm({ ...classForm, gradeLevel: e.target.value })}
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-[#3498db] outline-none"
+          >
+            <option value="">Select Grade Level</option>
+            <option value="11">Grade 11</option>
+            <option value="12">Grade 12</option>
+          </select>
+
+          <div className="relative">
+            <button
+              onClick={() => setShowDaysDropdown((prev) => !prev)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-left focus:ring-2 focus:ring-[#3498db] outline-none"
+            >
+              {classForm.days.length > 0 ? classForm.days.join(", ") : "Select Days"}
+            </button>
+            {showDaysDropdown && (
+              <div className="absolute mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-sm z-50">
+                {[
+                  "Monday",
+                  "Tuesday",
+                  "Wednesday",
+                  "Thursday",
+                  "Friday",
+                  "Saturday",
+                  "Sunday",
+                ].map((day) => (
+                  <label
+                    key={day}
+                    className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={classForm.days.includes(day)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setClassForm({ ...classForm, days: [...classForm.days, day] });
+                        } else {
+                          setClassForm({
+                            ...classForm,
+                            days: classForm.days.filter((d) => d !== day),
+                          });
+                        }
+                      }}
+                    />
+                    {day}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-4">
+            <input
+              type="time"
+              value={classForm.startTime}
+              onChange={(e) => setClassForm({ ...classForm, startTime: e.target.value })}
+              className="w-1/2 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
+            />
+            <input
+              type="time"
+              value={classForm.endTime}
+              onChange={(e) => setClassForm({ ...classForm, endTime: e.target.value })}
+              className="w-1/2 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
+            />
+          </div>
+
+          <button
+            onClick={handleSaveClass}
+            disabled={loading}
+            className="w-full bg-[#3498db] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#2f89ca] transition"
+          >
+            {loading ? "Saving..." : isEditMode ? "Update Class" : "Add Class"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -55,11 +55,25 @@ export default function StudentSettings() {
   // ✅ Password handlers
   const handlePasswordChange = (e) => setPasswords({ ...passwords, [e.target.name]: e.target.value });
   const handleChangePassword = async () => {
-    if (!passwords.new || !passwords.confirm) return toast.error("Please fill both fields");
-    if (passwords.new !== passwords.confirm) return toast.error("Passwords do not match");
+    if (!passwords.new || !passwords.confirm)
+      return toast.error("Please fill both fields");
+  
+    // ✅ Check if passwords match
+    if (passwords.new !== passwords.confirm)
+      return toast.error("Passwords do not match");
+  
+    // ✅ Password strength requirements
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(passwords.new)) {
+      return toast.error(
+        "Password must be at least 8 characters long and include 1 uppercase, 1 lowercase, and 1 number."
+      );
+    }
+  
     try {
       const user = auth.currentUser;
       if (!user) return toast.error("User not logged in");
+  
       await updatePassword(user, passwords.new);
       toast.success("Password updated successfully!");
       setPasswords({ new: "", confirm: "" });
@@ -68,6 +82,7 @@ export default function StudentSettings() {
       toast.error("Failed to update password: " + error.message);
     }
   };
+  
 
   // ✅ Upload profile picture (actual image)
   const handleProfilePicChange = async (e) => {

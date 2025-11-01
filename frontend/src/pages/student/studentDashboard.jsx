@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import StudentLayout from "../../components/studentLayout";
-import { UserCheck, UserX, Clock, Activity, Megaphone } from "lucide-react";
+import { UserCheck, UserX, Clock, Activity, Megaphone, FileDown } from "lucide-react";
 import { db, auth } from "../../firebase";
 import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
+import logoImage from "../../assets/images/aics_logo.png"; // ✅ Add this at the top of your file
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function StudentDashboard() {
   const [announcements, setAnnouncements] = useState([]);
@@ -25,32 +28,27 @@ export default function StudentDashboard() {
     return () => unsubscribe();
   }, []);
 
-  // ✅ Fetch Announcements (same logic as before)
+  // ✅ Fetch Announcements
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "announcements"), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
       const filtered = data.filter((a) => {
         const isExpired = new Date(a.expiration) < new Date();
         return !isExpired && (a.target === "students" || a.target === "all");
       });
-
       filtered.sort(
         (a, b) =>
           new Date(b.createdAt?.toDate?.() || 0) -
           new Date(a.createdAt?.toDate?.() || 0)
       );
-
       setAnnouncements(filtered);
     });
-
     return () => unsub();
   }, []);
 
   // ✅ Fetch student’s schedules
   useEffect(() => {
     if (!studentId) return;
-
     const fetchSchedules = async () => {
       try {
         const studentDoc = await getDoc(doc(db, "students", studentId));
@@ -82,9 +80,115 @@ export default function StudentDashboard() {
         console.error("Error fetching schedules:", err);
       }
     };
-
     fetchSchedules();
   }, [studentId]);
+
+// ✅ PDF Export Function
+const exportToPDF = async () => {
+  if (!studentId) return;
+
+  try {
+    const studentRef = doc(db, "students", studentId);
+    const studentSnap = await getDoc(studentRef);
+
+    if (!studentSnap.exists()) {
+      console.error("Student not found");
+      return;
+    }
+
+    const studentData = studentSnap.data();
+    const fullName = `${studentData.firstname || ""} ${
+      studentData.middlename || ""
+    } ${studentData.lastname || ""}`
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const gradeLevel =
+      schedules.length > 0 ? schedules[0].gradeLevel || "N/A" : "N/A";
+
+    const docPDF = new jsPDF();
+
+    // ✅ Add imported logo (top-right)
+    const logo = new Image();
+    logo.src = logoImage;
+    logo.onload = () => {
+      docPDF.addImage(logo, "PNG", 170, 7, 25, 25); // x, y, width, height
+
+      // ✅ Header Section
+      docPDF.setFont("helvetica", "bold");
+      docPDF.setFontSize(18);
+      docPDF.text("Asian Institute of Computer Studies", 14, 20);
+
+      docPDF.setFontSize(14);
+      docPDF.text("Student Class Schedule", 14, 30);
+
+      // ✅ Blue underline for styling
+      docPDF.setDrawColor(66, 133, 244);
+      docPDF.setLineWidth(0.7);
+      docPDF.line(14, 35, 195, 35);
+
+      // ✅ Student Info
+      docPDF.setFont("helvetica", "normal");
+      docPDF.setFontSize(11);
+      docPDF.text(`Name: ${fullName}`, 14, 45);
+      docPDF.text(`Grade Level: ${gradeLevel}`, 14, 51);
+
+      docPDF.setFontSize(9);
+      docPDF.setTextColor(100);
+      docPDF.text(`Generated on: ${new Date().toLocaleString()}`, 14, 58);
+
+      if (schedules.length === 0) {
+        docPDF.text("No schedules available.", 14, 70);
+      } else {
+        const tableColumn = ["Days", "Time", "Subject", "Room", "Teacher"];
+        const tableRows = schedules.map((sched) => [
+          sched.days || "N/A",
+          sched.time || "N/A",
+          sched.subjectName || "N/A",
+          sched.roomNumber || "N/A",
+          teachers[sched.teacherId] || "Unknown",
+        ]);
+
+        // ✅ Styled Table
+        autoTable(docPDF, {
+          head: [tableColumn],
+          body: tableRows,
+          startY: 65,
+          theme: "striped",
+          headStyles: {
+            fillColor: [66, 133, 244],
+            textColor: 255,
+            fontStyle: "bold",
+            halign: "center",
+          },
+          bodyStyles: {
+            textColor: 50,
+            halign: "center",
+            cellPadding: 3,
+          },
+          styles: { fontSize: 10, lineColor: [220, 220, 220], lineWidth: 0.2 },
+          alternateRowStyles: { fillColor: [245, 248, 255] },
+        });
+      }
+
+      // ✅ Footer
+      const pageHeight = docPDF.internal.pageSize.height;
+      docPDF.setFontSize(9);
+      docPDF.setTextColor(120);
+      docPDF.text(
+        "This report is system-generated and does not require a signature.",
+        14,
+        pageHeight - 10
+      );
+
+      docPDF.save(`${fullName || "My"}_Schedule.pdf`);
+    };
+  } catch (error) {
+    console.error("PDF generation error:", error);
+  }
+};
+
+  
 
   return (
     <StudentLayout title="Dashboard">
@@ -142,7 +246,15 @@ export default function StudentDashboard() {
 
         {/* Schedules */}
         <div className="bg-white shadow-sm rounded-xl p-5 overflow-x-auto">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">My Schedule</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">My Schedule</h2>
+            <button
+              onClick={exportToPDF}
+              className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition"
+            >
+              <FileDown size={16} /> Download PDF
+            </button>
+          </div>
 
           {schedules.length === 0 ? (
             <p className="text-gray-400 italic">No schedules yet.</p>

@@ -7,9 +7,11 @@ import {
   Get,
   Body,
   Delete,
+  Param,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AdminService } from './admin.service';
+import { storage } from '../cloudinary.config';
 import { diskStorage } from 'multer';
 
 @Controller('admin')
@@ -96,4 +98,17 @@ export class AdminController {
     const activities = await this.adminService.getRecentActivities();
     return { success: true, activities };
   }
-}
+
+   // ✅ Upload Profile Picture (Actual Image) for Admin
+   @Post('upload-profile-picture/:adminId')
+   @UseInterceptors(FileInterceptor('file', { storage }))
+   async uploadProfilePicture(
+     @Param('adminId') adminId: string,
+     @UploadedFile() file: Express.Multer.File,
+   ) {
+     if (!file) throw new BadRequestException('No file uploaded');
+     // file.path should be the Cloudinary URL/path returned by the storage adapter
+     return await this.adminService.saveProfilePicture(adminId, file.path);
+   }
+ }
+

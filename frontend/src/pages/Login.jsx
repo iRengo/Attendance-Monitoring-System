@@ -50,92 +50,112 @@ export default function Login() {
   }, []);
 
   // ✅ LOGIN FUNCTION WITH MAINTENANCE CHECK
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  // ✅ LOGIN FUNCTION WITH MAINTENANCE CHECK
+const handleLogin = async (e) => {
+  e.preventDefault();
 
-    if (!captchaValue) {
-      toast.error("Please complete the CAPTCHA!");
-      return;
-    }
+  if (!captchaValue) {
+    toast.error("Please complete the CAPTCHA!");
+    return;
+  }
 
-    setLoading(true);
+  setLoading(true);
 
-    try {
-      const emailTrimmed = email.trim().toLowerCase();
+  try {
+    const emailTrimmed = email.trim().toLowerCase();
 
-      // 🛠️ Step 1: Check if system is under maintenance
-      const maintenanceDoc = await getDoc(doc(db, "system_settings", "maintenance_mode"));
-      const isMaintenance = maintenanceDoc.exists() ? maintenanceDoc.data().enabled : false;
+    // Step 1: Check maintenance mode
+    const maintenanceDoc = await getDoc(doc(db, "system_settings", "maintenance_mode"));
+    const isMaintenance = maintenanceDoc.exists() ? maintenanceDoc.data().enabled : false;
 
-      // 🧠 Step 2: If under maintenance, only allow admins
-      if (isMaintenance) {
-        const adminSnapshot = await getDocs(collection(db, "admins"));
-        const adminDoc = adminSnapshot.docs.find(
-          (doc) => doc.data().email === emailTrimmed
-        );
-
-        if (!adminDoc) {
-          toast.warning("System is currently under maintenance. Please try again later.");
-          setLoading(false);
-          return;
-        }
-      }
-
-      // 🔍 Step 3: Check Admin collection first
+    // Step 2: If under maintenance, only allow admins
+    if (isMaintenance) {
       const adminSnapshot = await getDocs(collection(db, "admins"));
       const adminDoc = adminSnapshot.docs.find(
         (doc) => doc.data().email === emailTrimmed
       );
 
-      if (adminDoc) {
-        await signInWithEmailAndPassword(auth, emailTrimmed, password);
-        navigate("/admin/dashboard");
+      if (!adminDoc) {
+        toast.warning("System is currently under maintenance. Please try again later.");
+        setLoading(false);
         return;
       }
+    }
 
-      // 🔍 Step 4: If not admin, check students or teachers
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        emailTrimmed,
-        password
+    // Step 3: Check Admins collection
+    const adminSnapshot = await getDocs(collection(db, "admins"));
+    const adminDoc = adminSnapshot.docs.find(
+      (doc) => doc.data().email === emailTrimmed
+    );
+
+    if (adminDoc) {
+      await signInWithEmailAndPassword(auth, emailTrimmed, password);
+      // ✅ Save admin info
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          uid: adminDoc.id,
+          role: "admin",
+          email: emailTrimmed,
+        })
+      );
+      navigate("/admin/dashboard");
+      return;
+    }
+
+    // Step 4: Check students or teachers
+    const userCredential = await signInWithEmailAndPassword(
+      auth,
+      emailTrimmed,
+      password
+    );
+
+    const collections = ["students", "teachers"];
+    let userDoc = null;
+    let userRole = null;
+
+    for (const col of collections) {
+      const q = await getDocs(collection(db, col));
+      const docSnap = q.docs.find(
+        (doc) => doc.data().school_email === emailTrimmed
       );
 
-      const collections = ["students", "teachers"];
-      let userDoc = null;
-      let userRole = null;
-
-      for (const col of collections) {
-        const q = await getDocs(collection(db, col));
-        const docSnap = q.docs.find(
-          (doc) => doc.data().school_email === emailTrimmed
-        );
-
-        if (docSnap) {
-          userDoc = docSnap.data();
-          userRole = col;
-          break;
-        }
+      if (docSnap) {
+        userDoc = docSnap.data();
+        userRole = col;
+        break;
       }
-
-      if (!userDoc) {
-        toast.error("No user record found in Firestore!");
-        return;
-      }
-
-      if (userRole === "students") {
-        navigate("/student/dashboard");
-      } else if (userRole === "teachers") {
-        navigate("/teacher/dashboard");
-      } else {
-        toast.error("Unknown user role.");
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error("Login failed: " + error.message);
-    } finally {
-      setLoading(false);
     }
-  };
+
+    if (!userDoc) {
+      toast.error("No user record found in Firestore!");
+      return;
+    }
+
+    // ✅ Save student or teacher info
+    localStorage.setItem(
+      "user",
+      JSON.stringify({
+        uid: userCredential.user.uid,
+        role: userRole === "students" ? "student" : "teacher",
+        email: emailTrimmed,
+      })
+    );
+
+    if (userRole === "students") {
+      navigate("/student/dashboard");
+    } else if (userRole === "teachers") {
+      navigate("/teacher/dashboard");
+    } else {
+      toast.error("Unknown user role.");
+    }
+  } catch (error) {
+    console.error(error);
+    toast.error("Login failed: " + error.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen w-screen flex overflow-hidden bg-[#f2f4fa] relative">

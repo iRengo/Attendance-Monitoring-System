@@ -230,4 +230,34 @@ export class AdminService {
       html: `<h3>Welcome!</h3><p>Email: ${schoolEmail}</p><p>Password: ${password}</p>`,
     });
   }
+  async saveProfilePicture(adminId: string, imageUrl: string) {
+    if (!imageUrl) throw new BadRequestException('No image URL provided');
+
+    const adminRef = this.db.collection('admins').doc(adminId);
+    await adminRef.set(
+      {
+        profilePicUrl: imageUrl,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+
+    // Log the admin action to recent_activities collection (optional)
+    try {
+      await this.db.collection('recent_activities').add({
+        action: 'Uploaded Admin Profile Picture',
+        details: `Admin ${adminId} updated profile picture.`,
+        actor: `Admin:${adminId}`,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Failed to log admin profile pic upload activity:', err);
+    }
+
+    return {
+      success: true,
+      message: 'Profile picture uploaded successfully',
+      imageUrl,
+    };
+  }
 }
