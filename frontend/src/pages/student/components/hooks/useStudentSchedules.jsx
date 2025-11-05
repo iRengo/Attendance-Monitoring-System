@@ -6,23 +6,14 @@ import { doc, getDoc, collection, getDocs } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 
 /**
- * useStudentSchedules
- * Encapsulates all data fetching and actions from the original file:
- * - fetch student classes & grade level
- * - fetch teacher names
- * - fetch posts for selected class
- * - join class (with profile picture checks)
- * - leave class
- * - convertTo12Hour helper
- *
- * Paths, endpoints and UI behavior are preserved.
+ * useStudentSchedules (updated for top-level classes collection and student.classes as array of IDs)
  */
 export default function useStudentSchedules() {
   const navigate = useNavigate();
   const studentId = auth.currentUser?.uid;
 
   const [joinLink, setJoinLink] = useState("");
-  const [classes, setClasses] = useState([]);
+  const [classes, setClasses] = useState([]); // array of full class objects { id, subjectName, ... }
   const [teachers, setTeachers] = useState({});
   const [selectedClass, setSelectedClass] = useState(null);
   const [dropdownOpenId, setDropdownOpenId] = useState(null);
@@ -30,26 +21,39 @@ export default function useStudentSchedules() {
   const [leaveModal, setLeaveModal] = useState({ open: false, classId: null });
   const [gradeLevel, setGradeLevel] = useState(null);
 
-  // Fetch student's current classes & grade level
+  // Fetch student's class IDs and expand to class documents
   useEffect(() => {
     if (!studentId) return;
+
     const fetchStudentData = async () => {
       try {
         const studentDoc = await getDoc(doc(db, "students", studentId));
-        if (studentDoc.exists()) {
-          const studentData = studentDoc.data();
-          setClasses(studentData.classes || []);
-          setGradeLevel(
-            studentData.gradeLevel ||
-              studentData.grade ||
-              studentData.level ||
-              "N/A"
-          );
+        if (!studentDoc.exists()) return;
+
+        const studentData = studentDoc.data() || {};
+        const classIds = Array.isArray(studentData.classes) ? studentData.classes : [];
+        setGradeLevel(
+          studentData.gradeLevel || studentData.grade || studentData.level || "N/A"
+        );
+
+        if (!classIds.length) {
+          setClasses([]);
+          return;
         }
+
+        const classDocs = await Promise.all(
+          classIds.map(async (id) => {
+            const snap = await getDoc(doc(db, "classes", id));
+            return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+          })
+        );
+
+        setClasses(classDocs.filter(Boolean));
       } catch (err) {
         console.error("Error fetching student classes:", err);
       }
     };
+
     fetchStudentData();
   }, [studentId]);
 
@@ -61,47 +65,41 @@ export default function useStudentSchedules() {
 
       await Promise.all(
         teacherIds.map(async (id) => {
-          if (!teachers[id]) {
-            const teacherDoc = await getDoc(doc(db, "teachers", id));
-            if (teacherDoc.exists()) {
-              const t = teacherDoc.data();
-              const firstName = t.firstName ?? t.firstname ?? "";
-              const middleName = t.middleName ?? t.middlename ?? "";
-              const lastName = t.lastName ?? t.lastname ?? "";
-              const fullName = `${firstName} ${middleName} ${lastName}`
-                .replace(/\s+/g, " ")
-                .trim();
-              teacherData[id] = fullName || "Unknown Teacher";
-            } else {
-              teacherData[id] = "Unknown Teacher";
-            }
+          if (teachers[id]) return;
+          const teacherDoc = await getDoc(doc(db, "teachers", id));
+          if (teacherDoc.exists()) {
+            const t = teacherDoc.data();
+            const firstName = t.firstName ?? t.firstname ?? "";
+            const middleName = t.middleName ?? t.middlename ?? "";
+            const lastName = t.lastName ?? t.lastname ?? "";
+            const fullName = `${firstName} ${middleName} ${lastName}`
+              .replace(/\s+/g, " ")
+              .trim();
+            teacherData[id] = fullName || "Unknown Teacher";
+          } else {
+            teacherData[id] = "Unknown Teacher";
           }
         })
       );
 
-      setTeachers((prev) => ({ ...prev, ...teacherData }));
+      if (Object.keys(teacherData).length) {
+        setTeachers((prev) => ({ ...prev, ...teacherData }));
+      }
     };
 
     if (classes.length > 0) fetchTeacherNames();
-  }, [classes]);
+  }, [classes]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch posts for selected class
+  // Fetch posts for selected class from top-level classes/{classId}/posts
   useEffect(() => {
-    if (!selectedClass || !selectedClass.teacherId || !selectedClass.id) {
+    if (!selectedClass || !selectedClass.id) {
       setPosts([]);
       return;
     }
 
     const fetchClassPosts = async () => {
       try {
-        const postsRef = collection(
-          db,
-          "teachers",
-          selectedClass.teacherId,
-          "classes",
-          selectedClass.id,
-          "posts"
-        );
+        const postsRef = collection(db, "classes", selectedClass.id, "posts");
         const postsSnap = await getDocs(postsRef);
         const postsData = postsSnap.docs.map((docSnap) => ({
           id: docSnap.id,
@@ -109,7 +107,7 @@ export default function useStudentSchedules() {
         }));
         postsData.sort(
           (a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
         );
         setPosts(postsData);
       } catch (err) {
@@ -145,7 +143,7 @@ export default function useStudentSchedules() {
         return;
       }
 
-      const studentData = studentDoc.data();
+      const studentData = studentDoc.data() || {};
       const hasProfilePic =
         !!studentData.profilePicBinary || !!studentData.profilePicUrl;
 
@@ -185,11 +183,20 @@ export default function useStudentSchedules() {
           confirmButtonColor: "#3498db",
         });
 
+        // Prefer backend-provided class info; otherwise fetch from Firestore
         const joinedClass = res.data.class;
-        setClasses((prev) => [...prev, joinedClass]);
+        let fullClass = joinedClass;
+        if (!joinedClass?.subjectName) {
+          const snap = await getDoc(doc(db, "classes", classId));
+          if (snap.exists()) {
+            fullClass = { id: snap.id, ...snap.data() };
+          }
+        }
 
-        if (joinedClass.gradeLevel && joinedClass.gradeLevel !== "N/A") {
-          setGradeLevel(joinedClass.gradeLevel);
+        setClasses((prev) => [...prev, fullClass]);
+
+        if (fullClass?.gradeLevel && fullClass.gradeLevel !== "N/A") {
+          setGradeLevel(fullClass.gradeLevel);
         }
 
         setJoinLink("");
@@ -246,7 +253,7 @@ export default function useStudentSchedules() {
     }
   };
 
-  // Convert 24h to 12h helper (kept for possible component use)
+  // Convert 24h to 12h helper (kept)
   const convertTo12Hour = (time24) => {
     if (!time24) return "";
     const [hour, minute] = time24.split(":");
@@ -254,7 +261,7 @@ export default function useStudentSchedules() {
     const ampm = hourNum >= 12 ? "PM" : "AM";
     const hour12 = hourNum % 12 || 12;
     return `${hour12}:${minute} ${ampm}`;
-  };
+    };
 
   return {
     joinLink,

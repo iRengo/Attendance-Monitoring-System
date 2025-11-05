@@ -19,17 +19,16 @@ import { storage } from "../cloudinary.config";
 export class TeacherController {
   constructor(private readonly teacherService: TeacherService) {}
 
-  // ✅ Add Class
+  // ✅ Add Class (still validates same fields to keep UI unchanged)
   @Post("add-class")
   async addClass(@Body() body: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } =
-      body;
+    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
     if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel)
       throw new BadRequestException("All fields are required including grade level.");
     return await this.teacherService.addClass(body);
   }
 
-  // ✅ Get Teacher Classes
+  // ✅ Get Teacher Classes (reads from top-level classes collection)
   @Get("classes")
   async getClasses(@Query("teacherId") teacherId: string) {
     if (!teacherId) throw new BadRequestException("Teacher ID is required.");
@@ -39,8 +38,7 @@ export class TeacherController {
   // ✅ Update Class
   @Put("update-class/:classId")
   async updateClass(@Param("classId") classId: string, @Body() body: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } =
-      body;
+    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
     if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel)
       throw new BadRequestException("All fields are required including grade level.");
     return await this.teacherService.updateClass(teacherId, classId, body);
@@ -56,25 +54,23 @@ export class TeacherController {
     return await this.teacherService.deleteClass(teacherId, classId);
   }
 
+  // ✅ Add Post
   @Post("add-post")
-async addPost(@Body() body: any) {
-  const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = body;
-
-  if (!teacherId || !classId || (!content && !fileUrl && !imageUrl)) {
-    throw new BadRequestException("Post must include text, image, or file.");
+  async addPost(@Body() body: any) {
+    const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = body;
+    if (!teacherId || !classId || (!content && !fileUrl && !imageUrl)) {
+      throw new BadRequestException("Post must include text, image, or file.");
+    }
+    return await this.teacherService.addPost({
+      teacherId,
+      classId,
+      content,
+      fileUrl,
+      imageUrl,
+      fileName,
+      fileType,
+    });
   }
-
-  return await this.teacherService.addPost({
-    teacherId,
-    classId,
-    content,
-    fileUrl,
-    imageUrl,
-    fileName,
-    fileType,
-  });
-}
-  
 
   // ✅ Get Class Posts
   @Get("class-posts")
@@ -105,7 +101,7 @@ async addPost(@Body() body: any) {
     return await this.teacherService.getTeacherStats(teacherId);
   }
 
-  // ✅ Upload Profile Picture (Base64 Binary)
+  // ✅ Upload Profile Picture
   @Post("upload-profile-picture/:teacherId")
   @UseInterceptors(FileInterceptor("file", { storage }))
   async uploadProfilePicture(
@@ -113,7 +109,6 @@ async addPost(@Body() body: any) {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException("No file uploaded");
-    // file.path should be the Cloudinary URL or public path depending on your cloudinary storage implementation
     return await this.teacherService.saveProfilePicture(teacherId, file.path);
   }
 }

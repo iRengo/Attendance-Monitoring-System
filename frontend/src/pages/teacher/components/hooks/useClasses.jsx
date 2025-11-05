@@ -3,10 +3,6 @@ import axios from "axios";
 import { convertTo12Hour } from "../utils/time";
 import Swal from "sweetalert2";
 
-/**
- * useClasses hook encapsulates class fetching and CRUD handlers.
- * Replaced native alert/confirm with SweetAlert2 dialogs (Swal).
- */
 export default function useClasses(teacherId) {
   const [classes, setClasses] = useState([]);
   const [studentCounts, setStudentCounts] = useState({});
@@ -25,7 +21,6 @@ export default function useClasses(teacherId) {
   const [isEditMode, setIsEditMode] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // fetch classes
   useEffect(() => {
     const fetchClasses = async () => {
       if (!teacherId) return;
@@ -33,7 +28,12 @@ export default function useClasses(teacherId) {
         const res = await axios.get("http://localhost:3000/teacher/classes", {
           params: { teacherId },
         });
-        if (res.data.success) setClasses(res.data.classes);
+        if (res.data.success) {
+          setClasses(res.data.classes);
+          if (res.data.needsIndex) {
+            console.warn("Firestore composite index missing for classes {teacherId, createdAt}.");
+          }
+        }
       } catch (err) {
         console.error("Error fetching classes:", err);
         Swal.fire({ icon: "error", title: "Error", text: "Error fetching classes." });
@@ -42,7 +42,6 @@ export default function useClasses(teacherId) {
     fetchClasses();
   }, [teacherId]);
 
-  // fetch student counts for classes
   useEffect(() => {
     const fetchStudentCounts = async () => {
       if (!teacherId || classes.length === 0) return;
@@ -63,7 +62,6 @@ export default function useClasses(teacherId) {
     fetchStudentCounts();
   }, [classes, teacherId]);
 
-  // save class (add or edit)
   const handleSaveClass = async () => {
     if (
       !classForm.subject.trim() ||
@@ -83,6 +81,9 @@ export default function useClasses(teacherId) {
     const fullTime = `${startTime12} - ${endTime12}`;
     const daysString = classForm.days.join(", ");
 
+    // Name: subjectName section-gradeLevel (e.g., "checkcheck B-11")
+    const computedName = `${classForm.subject} ${classForm.section}-${classForm.gradeLevel}`.trim();
+
     setLoading(true);
 
     try {
@@ -91,12 +92,16 @@ export default function useClasses(teacherId) {
           `http://localhost:3000/teacher/update-class/${classForm.id}`,
           {
             teacherId,
+            // required by backend controller validation
             subjectName: classForm.subject,
             roomNumber: classForm.room,
             section: classForm.section,
             gradeLevel: classForm.gradeLevel,
             days: daysString,
             time: fullTime,
+            // canonical fields (no "subject")
+            name: computedName,
+            roomId: classForm.room,
           }
         );
 
@@ -106,7 +111,11 @@ export default function useClasses(teacherId) {
               cls.id === classForm.id
                 ? {
                     ...cls,
+                    // no "subject" field; keep subjectName
                     subjectName: classForm.subject,
+                    name: computedName,
+                    teacherId,
+                    roomId: classForm.room,
                     roomNumber: classForm.room,
                     section: classForm.section,
                     gradeLevel: classForm.gradeLevel,
@@ -116,17 +125,27 @@ export default function useClasses(teacherId) {
                 : cls
             )
           );
-          await Swal.fire({ icon: "success", title: "Updated", text: "Class updated successfully!", timer: 1400, showConfirmButton: false });
+          await Swal.fire({
+            icon: "success",
+            title: "Updated",
+            text: "Class updated successfully!",
+            timer: 1400,
+            showConfirmButton: false,
+          });
         }
       } else {
         const res = await axios.post("http://localhost:3000/teacher/add-class", {
           teacherId,
+          // required by backend controller validation
           subjectName: classForm.subject,
           roomNumber: classForm.room,
           section: classForm.section,
           gradeLevel: classForm.gradeLevel,
           days: daysString,
           time: fullTime,
+          // canonical fields (no "subject")
+          name: computedName,
+          roomId: classForm.room,
         });
 
         if (res.data.success) {
@@ -135,6 +154,9 @@ export default function useClasses(teacherId) {
             {
               id: res.data.id,
               subjectName: classForm.subject,
+              name: computedName,
+              teacherId,
+              roomId: classForm.room,
               roomNumber: classForm.room,
               section: classForm.section,
               gradeLevel: classForm.gradeLevel,
@@ -142,7 +164,13 @@ export default function useClasses(teacherId) {
               time: fullTime,
             },
           ]);
-          await Swal.fire({ icon: "success", title: "Added", text: "Class added successfully!", timer: 1400, showConfirmButton: false });
+          await Swal.fire({
+            icon: "success",
+            title: "Added",
+            text: "Class added successfully!",
+            timer: 1400,
+            showConfirmButton: false,
+          });
         }
       }
 
@@ -166,7 +194,6 @@ export default function useClasses(teacherId) {
     }
   };
 
-  // delete class
   const handleDeleteClass = async (classId) => {
     const result = await Swal.fire({
       title: "Delete class?",
@@ -186,9 +213,19 @@ export default function useClasses(teacherId) {
       );
       if (res.data.success) {
         setClasses((prev) => prev.filter((cls) => cls.id !== classId));
-        await Swal.fire({ icon: "success", title: "Deleted", text: "Class deleted successfully!", timer: 1400, showConfirmButton: false });
+        await Swal.fire({
+          icon: "success",
+          title: "Deleted",
+          text: "Class deleted successfully!",
+          timer: 1400,
+          showConfirmButton: false,
+        });
       } else {
-        await Swal.fire({ icon: "error", title: "Failed", text: res.data.message || "Failed to delete class." });
+        await Swal.fire({
+          icon: "error",
+          title: "Failed",
+          text: res.data.message || "Failed to delete class.",
+        });
       }
     } catch (err) {
       console.error(err);
@@ -196,22 +233,22 @@ export default function useClasses(teacherId) {
     }
   };
 
-  // edit class: prepare form and open modal
   const handleEditClass = (cls) => {
-    const [start, end] = cls.time.split(" - ").map((t) => {
-      const [h, m] = t.split(":");
+    const [start, end] = (cls.time || "").split(" - ").map((t) => {
+      const [h = "", m = ""] = t.split(":");
       return h.length === 1 ? `0${h}:${m}` : `${h}:${m}`;
     });
 
     setClassForm({
       id: cls.id,
-      subject: cls.subjectName,
-      room: cls.roomNumber,
-      section: cls.section,
+      // Use subjectName only; do not use "subject"
+      subject: cls.subjectName || "",
+      room: cls.roomNumber || cls.roomId || "",
+      section: cls.section || "",
       gradeLevel: cls.gradeLevel || "",
-      days: cls.days.split(", "),
-      startTime: cls.startTime || start,
-      endTime: cls.endTime || end,
+      days: (cls.days || "").split(", ").filter(Boolean),
+      startTime: start || "",
+      endTime: end || "",
     });
 
     setIsEditMode(true);

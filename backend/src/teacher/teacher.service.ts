@@ -3,75 +3,167 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 
 @Injectable()
 export class TeacherService {
   private db = getFirestore();
 
-  // ✅ Add Class
-  async addClass(data: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = data;
+  private buildComputedName(subjectName?: string, section?: string, gradeLevel?: string, fallbackName?: string) {
+    const sName = (subjectName || "").trim();
+    const sec = (section || "").trim();
+    const grade = (gradeLevel || "").toString().trim();
 
-    const classData = {
+    if (sName && sec && grade) return `${sName} ${sec}-${grade}`;
+    if (sName && sec) return `${sName} ${sec}`;
+    if (sName) return sName;
+    return (fallbackName || "").trim();
+  }
+
+  private buildClassDoc(data: any) {
+    const subjectName = (data.subjectName ?? data.subject ?? "").trim();
+    const roomNumber = (data.roomNumber ?? data.roomId ?? "").trim();
+    const section = (data.section ?? "").trim();
+    const gradeLevel = (data.gradeLevel ?? "").toString().trim();
+    const days = (data.days ?? "").trim();
+    const time = (data.time ?? "").trim();
+    const roomId = (data.roomId ?? data.roomNumber ?? "").trim();
+    const teacherId = data.teacherId;
+
+    const computedName = this.buildComputedName(subjectName, section, gradeLevel, data.name);
+    const now = new Date().toISOString();
+
+    return {
+      name: computedName,
       subjectName,
-      roomNumber,
+      teacherId,
+      roomId,
       section,
+      gradeLevel,
       days,
       time,
-      gradeLevel,
-      createdAt: new Date().toISOString(),
+      roomNumber,
+      createdAt: data.createdAt ?? now,
+      updatedAt: now,
     };
+  }
 
-    const classRef = this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc();
+  // Add Class (top-level "classes") + mirror to teachers/{teacherId}: { classes: [id], subjects: [subjectName] }
+  async addClass(data: any) {
+    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = data;
+    if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel) {
+      throw new BadRequestException("All fields are required including grade level.");
+    }
 
-    await classRef.set(classData);
+    const providedId: string | undefined = data.classId;
+    const classesCol = this.db.collection("classes");
+    const classRef = providedId ? classesCol.doc(providedId) : classesCol.doc();
+
+    const classDoc = this.buildClassDoc(data);
+    await classRef.set(classDoc);
+
+    // Ensure no stray "subject" key
+    await classRef.update({ subject: FieldValue.delete() });
+
+    // Mirror into teacher doc
+    const teacherRef = this.db.collection("teachers").doc(teacherId);
+    await teacherRef.set(
+      {
+        classes: FieldValue.arrayUnion(classRef.id),
+        subjects: FieldValue.arrayUnion(classDoc.subjectName),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
     return { success: true, id: classRef.id };
   }
 
-  // ✅ Get Classes
+  // Get Classes
   async getClasses(teacherId: string) {
-    const snapshot = await this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .orderBy("createdAt", "desc")
-      .get();
+    const classesCol = this.db.collection("classes");
+    try {
+      const snapshot = await classesCol
+        .where("teacherId", "==", teacherId)
+        .orderBy("createdAt", "desc")
+        .get();
 
-    const classes = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    return { success: true, classes };
+      const classes = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      return { success: true, classes };
+    } catch (e: any) {
+      const needsIndex =
+        e?.code === 9 ||
+        (typeof e?.message === "string" && e.message.toLowerCase().includes("requires an index"));
+
+      if (!needsIndex) throw e;
+
+      // Fallback without index: where only then sort in memory
+      const snapNoOrder = await classesCol.where("teacherId", "==", teacherId).get();
+      const classes = snapNoOrder.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+      return { success: true, classes, needsIndex: true };
+    }
   }
 
-  // ✅ Update Class
+  // Update Class — recompute name, remove "subject", and sync teacher's subjects/classes arrays
   async updateClass(teacherId: string, classId: string, data: any) {
-    const classRef = this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc(classId);
-
+    const classRef = this.db.collection("classes").doc(classId);
     const docSnap = await classRef.get();
     if (!docSnap.exists) throw new NotFoundException("Class not found");
 
-    const updatedClassData = {
-      subjectName: data.subjectName,
-      roomNumber: data.roomNumber,
-      section: data.section,
-      days: data.days,
-      time: data.time,
-      gradeLevel: data.gradeLevel,
-    };
+    const cls = docSnap.data();
+    if (cls?.teacherId !== teacherId) {
+      throw new BadRequestException("You do not have permission to update this class.");
+    }
 
-    await classRef.update(updatedClassData);
+    const oldSubject = (cls?.subjectName || "").trim();
 
-    // 🔄 Sync updates to all enrolled students
+    const updated = this.buildClassDoc({ ...cls, ...data });
+
+    await classRef.update({
+      ...updated,
+      updatedAt: new Date().toISOString(),
+      // Remove fields we don't want to persist
+      subject: FieldValue.delete(),
+      schedule: FieldValue.delete(),
+      startTime: FieldValue.delete(),
+      endTime: FieldValue.delete(),
+    });
+
+    // Mirror: ensure classId present and add new subject if changed
+    const teacherRef = this.db.collection("teachers").doc(teacherId);
+    await teacherRef.set(
+      {
+        classes: FieldValue.arrayUnion(classId),
+        // Add current subject in case it's new
+        subjects: FieldValue.arrayUnion(updated.subjectName),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    // If subject changed, and no other classes use the old subject, remove it
+    const newSubject = (updated.subjectName || "").trim();
+    if (oldSubject && newSubject && oldSubject !== newSubject) {
+      const othersSnap = await this.db
+        .collection("classes")
+        .where("teacherId", "==", teacherId)
+        .where("subjectName", "==", oldSubject)
+        .get();
+
+      // After the update above, this class no longer matches oldSubject.
+      if (othersSnap.empty) {
+        await teacherRef.update({ subjects: FieldValue.arrayRemove(oldSubject) });
+      }
+    }
+
+    // 🔄 Sync minimal fields to each student's legacy classes[] entry — safe no-op if IDs-only schema
     const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
@@ -79,10 +171,27 @@ export class TeacherService {
       const studentSnap = await studentRef.get();
 
       if (studentSnap.exists) {
-        const studentData = studentSnap.data();
-        if (studentData?.classes?.length) {
-          const updatedClasses = studentData.classes.map((cls: any) =>
-            cls.id === classId ? { ...cls, ...updatedClassData } : cls
+        const studentData = studentSnap.data() as any;
+        if (Array.isArray(studentData?.classes) && studentData.classes.length) {
+          const allStrings = studentData.classes.every((c: any) => typeof c === "string");
+          if (allStrings) continue;
+
+          const updatedClasses = studentData.classes.map((c: any) =>
+            c.id === classId
+              ? {
+                  ...c,
+                  id: classId,
+                  name: updated.name,
+                  subjectName: updated.subjectName,
+                  teacherId: updated.teacherId,
+                  roomId: updated.roomId,
+                  roomNumber: updated.roomNumber,
+                  section: updated.section,
+                  gradeLevel: updated.gradeLevel,
+                  days: updated.days,
+                  time: updated.time,
+                }
+              : c
           );
           await studentRef.update({ classes: updatedClasses });
         }
@@ -92,18 +201,19 @@ export class TeacherService {
     return { success: true, message: "Class updated successfully" };
   }
 
-  // ✅ Delete Class
   async deleteClass(teacherId: string, classId: string) {
-    const classRef = this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc(classId);
-
+    const classRef = this.db.collection("classes").doc(classId);
     const docSnap = await classRef.get();
     if (!docSnap.exists) throw new NotFoundException("Class not found");
 
-    // Remove class from students
+    const cls = docSnap.data();
+    if (cls?.teacherId !== teacherId) {
+      throw new BadRequestException("You do not have permission to delete this class.");
+    }
+
+    const subjectToMaybeRemove = (cls?.subjectName || "").trim();
+
+    // Remove class reference from students
     const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
@@ -111,89 +221,106 @@ export class TeacherService {
       const studentSnap = await studentRef.get();
 
       if (studentSnap.exists) {
-        const studentData = studentSnap.data();
-        if (studentData?.classes?.length) {
-          const updatedClasses = studentData.classes.filter(
-            (cls: any) => cls.id !== classId
-          );
-          await studentRef.update({ classes: updatedClasses });
+        const studentData = studentSnap.data() as any;
+        if (Array.isArray(studentData?.classes) && studentData.classes.length) {
+          const allStrings = studentData.classes.every((c: any) => typeof c === "string");
+          if (allStrings) {
+            await studentRef.update({ classes: FieldValue.arrayRemove(classId) });
+          } else {
+            const updatedClasses = studentData.classes.filter((c: any) => c.id !== classId);
+            await studentRef.update({ classes: updatedClasses });
+          }
         }
       }
     }
 
+    // Delete posts and students subcollections
+    const postsSnapshot = await classRef.collection("posts").get();
+    const batch = this.db.batch();
+    postsSnapshot.docs.forEach((d) => batch.delete(d.ref));
+    studentsSnapshot.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+
+    // Delete class document
     await classRef.delete();
+
+    // Mirror cleanup in teacher doc
+    const teacherRef = this.db.collection("teachers").doc(teacherId);
+    await teacherRef.update({
+      classes: FieldValue.arrayRemove(classId),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // If no other classes with this subject remain, remove the subject from teacher.subjects
+    if (subjectToMaybeRemove) {
+      const othersSnap = await this.db
+        .collection("classes")
+        .where("teacherId", "==", teacherId)
+        .where("subjectName", "==", subjectToMaybeRemove)
+        .get();
+
+      if (othersSnap.empty) {
+        await teacherRef.update({ subjects: FieldValue.arrayRemove(subjectToMaybeRemove) });
+      }
+    }
+
     return { success: true, message: "Class deleted successfully" };
   }
 
-  // ✅ Add Post
-  // ✅ Add Post (nested under each class)
-async addPost(data: any) {
-  const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = data;
+  // Posts unchanged (top-level classes/{classId}/posts)
+  async addPost(data: any) {
+    const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = data;
+    if (!teacherId || !classId) throw new BadRequestException("Missing teacherId or classId");
 
-  if (!teacherId || !classId) {
-    throw new BadRequestException("Missing teacherId or classId");
+    const classRef = this.db.collection("classes").doc(classId);
+    const classSnap = await classRef.get();
+    if (!classSnap.exists) throw new NotFoundException("Class not found");
+    if (classSnap.data()?.teacherId !== teacherId) {
+      throw new BadRequestException("You do not have permission to post to this class.");
+    }
+    if (!content && !fileUrl && !imageUrl) {
+      throw new BadRequestException("Post must include text, image, or file.");
+    }
+
+    const post = {
+      teacherId,
+      classId,
+      content: content ?? null,
+      fileUrl: fileUrl ?? null,
+      imageUrl: imageUrl ?? null,
+      fileName: fileName ?? null,
+      fileType: fileType ?? null,
+      timestamp: new Date().toISOString(),
+    };
+
+    const postRef = await classRef.collection("posts").add(post);
+    return { success: true, post: { id: postRef.id, ...post } };
   }
 
-  const post = {
-    teacherId,
-    classId,
-    content,
-    fileUrl: fileUrl || null,
-    imageUrl: imageUrl || null,
-    fileName: fileName || null,
-    fileType: fileType || null,
-    timestamp: new Date().toISOString(),
-  };
-
-  // ✅ Store inside teacher's class posts collection:
-  const postRef = await this.db
-    .collection("teachers")
-    .doc(teacherId)
-    .collection("classes")
-    .doc(classId)
-    .collection("posts")
-    .add(post);
-
-  return { success: true, post: { id: postRef.id, ...post } };
-}
-
-
-  // ✅ Get Class Posts
   async getClassPosts(teacherId: string, classId: string) {
-    const postsSnapshot = await this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc(classId)
-      .collection("posts")
-      .orderBy("timestamp", "desc")
-      .get();
+    const classRef = this.db.collection("classes").doc(classId);
+    const classSnap = await classRef.get();
+    if (!classSnap.exists) throw new NotFoundException("Class not found");
+    if (classSnap.data()?.teacherId !== teacherId) {
+      throw new BadRequestException("You do not have permission to view posts for this class.");
+    }
 
-    const posts = postsSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const postsSnapshot = await classRef.collection("posts").orderBy("timestamp", "desc").get();
+    const posts = postsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     return { success: true, posts };
   }
 
-  // ✅ Get Class Students
   async getClassStudents(teacherId: string, classId: string) {
-    const classDoc = await this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .doc(classId)
-      .get();
+    const classRef = this.db.collection("classes").doc(classId);
+    const classSnap = await classRef.get();
+    if (!classSnap.exists) throw new NotFoundException("Class not found");
+    if (classSnap.data()?.teacherId !== teacherId) {
+      throw new BadRequestException("You do not have permission to view students for this class.");
+    }
 
-    if (!classDoc.exists) throw new NotFoundException("Class not found");
-
-    const studentsSnapshot = await classDoc.ref.collection("students").get();
+    const studentsSnapshot = await classRef.collection("students").get();
     if (studentsSnapshot.empty)
-      return {
-        success: true,
-        students: [],
-        message: "No students have joined yet.",
-      };
+      return { success: true, students: [], message: "No students have joined yet." };
 
     const students = await Promise.all(
       studentsSnapshot.docs.map(async (doc) => {
@@ -203,11 +330,11 @@ async addPost(data: any) {
         return {
           id: studentId,
           joinedAt: doc.data().joinedAt,
-          firstName: studentData?.firstName || studentData?.firstname || null,
-          middleName: studentData?.middleName || studentData?.middlename || null,
-          lastName: studentData?.lastName || studentData?.lastname || null,
-          email: studentData?.school_email || studentData?.personal_email || null,
-          status: studentData?.status || null,
+          firstName: (studentData as any)?.firstName || (studentData as any)?.firstname || null,
+          middleName: (studentData as any)?.middleName || (studentData as any)?.middlename || null,
+          lastName: (studentData as any)?.lastName || (studentData as any)?.lastname || null,
+          email: (studentData as any)?.school_email || (studentData as any)?.personal_email || null,
+          status: (studentData as any)?.status || null,
         };
       })
     );
@@ -215,53 +342,37 @@ async addPost(data: any) {
     return { success: true, students };
   }
 
-  // ✅ Dashboard Stats
   async getTeacherStats(teacherId: string) {
-    const classesSnapshot = await this.db
-      .collection("teachers")
-      .doc(teacherId)
-      .collection("classes")
-      .get();
+    const classesSnapshot = await this.db.collection("classes").where("teacherId", "==", teacherId).get();
 
     if (classesSnapshot.empty)
       return { success: true, totalClasses: 0, totalStudents: 0, totalSubjects: 0 };
 
     const subjectSet = new Set<string>();
-    const studentSet = new Set<string>();
 
     for (const classDoc of classesSnapshot.docs) {
-      const classData = classDoc.data();
-      if (classData.subjectName) subjectSet.add(classData.subjectName.trim());
-
-      const studentsSnapshot = await classDoc.ref.collection("students").get();
-      studentsSnapshot.docs.forEach((s) => studentSet.add(s.id));
+      const classData: any = classDoc.data();
+      if (classData.subjectName) subjectSet.add((classData.subjectName as string).trim());
+      // You can also aggregate student counts by reading subcollections if desired
     }
 
     return {
       success: true,
       totalClasses: classesSnapshot.size,
-      totalStudents: studentSet.size,
+      totalStudents: 0,
       totalSubjects: subjectSet.size,
     };
   }
 
-  // ✅ Upload Profile Picture (Base64 Binary)
   async saveProfilePicture(teacherId: string, imageUrl: string) {
-      if (!imageUrl) throw new BadRequestException("No image URL provided");
+    if (!imageUrl) throw new BadRequestException("No image URL provided");
 
-      const teacherRef = this.db.collection("teachers").doc(teacherId);
-      await teacherRef.set(
-        {
-          profilePicUrl: imageUrl,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+    const teacherRef = this.db.collection("teachers").doc(teacherId);
+    await teacherRef.set(
+      { profilePicUrl: imageUrl, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
 
-      return {
-        success: true,
-        message: "Profile picture uploaded successfully",
-        imageUrl,
-      };
-    }
+    return { success: true, message: "Profile picture uploaded successfully", imageUrl };
   }
+}

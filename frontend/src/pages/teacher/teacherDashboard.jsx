@@ -12,7 +12,7 @@ import {
   Legend,
 } from "recharts";
 import { auth, db } from "../../firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 
 export default function TeacherDashboard() {
   const [teacherId, setTeacherId] = useState(null);
@@ -34,40 +34,44 @@ export default function TeacherDashboard() {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) setTeacherId(user.uid);
+      else setTeacherId(null);
     });
     return unsubscribe;
   }, []);
 
-  // ✅ Fetch teacher stats + upcoming class
+  // ✅ Fetch teacher stats + upcoming class (from top-level classes collection)
   useEffect(() => {
-    const fetchTeacherData = async () => {
-      if (!teacherId) return;
-      setLoading(true);
+    if (!teacherId) return;
 
+    let isActive = true;
+    const fetchTeacherData = async () => {
+      setLoading(true);
       try {
-        const classesRef = collection(db, "teachers", teacherId, "classes");
-        const classSnap = await getDocs(classesRef);
+        // Read classes from top-level "classes" collection filtered by teacherId
+        const classesQ = query(collection(db, "classes"), where("teacherId", "==", teacherId));
+        const classSnap = await getDocs(classesQ);
 
         const subjectSet = new Set();
         const studentSet = new Set();
         const classList = [];
 
         for (const classDoc of classSnap.docs) {
-          const classData = classDoc.data();
-          classList.push({ id: classDoc.id, ...classData });
-          subjectSet.add(classData.subjectName?.trim().toLowerCase());
+          const classData = classDoc.data() || {};
+          const cls = { id: classDoc.id, ...classData };
+          classList.push(cls);
 
-          const studentsRef = collection(
-            db,
-            "teachers",
-            teacherId,
-            "classes",
-            classDoc.id,
-            "students"
-          );
+          // Unique subjects (case-insensitive)
+          if (classData.subjectName) {
+            subjectSet.add(String(classData.subjectName).trim().toLowerCase());
+          }
+
+          // Count unique students across all classes via subcollection classes/{classId}/students
+          const studentsRef = collection(db, "classes", classDoc.id, "students");
           const studentsSnap = await getDocs(studentsRef);
           studentsSnap.docs.forEach((s) => studentSet.add(s.id));
         }
+
+        if (!isActive) return;
 
         setTotalClasses(classSnap.size);
         setTotalSubjects(subjectSet.size);
@@ -78,11 +82,14 @@ export default function TeacherDashboard() {
       } catch (err) {
         console.error("Error fetching teacher dashboard data:", err);
       } finally {
-        setLoading(false);
+        if (isActive) setLoading(false);
       }
     };
 
     fetchTeacherData();
+    return () => {
+      isActive = false;
+    };
   }, [teacherId]);
 
   // ✅ Helper: find the next upcoming class based on today/time
@@ -94,11 +101,16 @@ export default function TeacherDashboard() {
     const currentTime = now.getHours() * 60 + now.getMinutes();
 
     const parseTime = (timeStr) => {
+      if (!timeStr) return null;
       const [time, meridian] = timeStr.split(" ");
-      let [hour, minute] = time.split(":").map(Number);
-      if (meridian === "PM" && hour !== 12) hour += 12;
-      if (meridian === "AM" && hour === 12) hour = 0;
-      return hour * 60 + (minute || 0);
+      if (!time || !meridian) return null;
+      let [hourStr, minuteStr] = time.split(":");
+      let hour = Number(hourStr);
+      const minute = Number(minuteStr || 0);
+      if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+      if (meridian.toUpperCase() === "PM" && hour !== 12) hour += 12;
+      if (meridian.toUpperCase() === "AM" && hour === 12) hour = 0;
+      return hour * 60 + minute;
     };
 
     const daysOfWeek = [
@@ -116,23 +128,31 @@ export default function TeacherDashboard() {
     let nearestDiff = Infinity;
 
     for (const cls of classes) {
-      const classDays = cls.days?.split(",").map((d) => d.trim());
+      if (!cls?.days || !cls?.time || !cls.time.includes(" - ")) continue;
+
+      const classDays = String(cls.days)
+        .split(",")
+        .map((d) => d.trim())
+        .filter(Boolean);
+
       const [startStr, endStr] = cls.time.split(" - ").map((t) => t.trim());
       const start = parseTime(startStr);
       let end = parseTime(endStr);
-      if (end <= start) end += 24 * 60; // handles 8 PM – 12 AM
+      if (start == null || end == null) continue;
+      if (end <= start) end += 24 * 60; // handle ranges that pass midnight
 
       for (const day of classDays) {
         const dayIndex = daysOfWeek.indexOf(day);
+        if (dayIndex === -1) continue;
+
         let diffDays = dayIndex - todayIndex;
         if (diffDays < 0) diffDays += 7;
 
         const totalMinutesDiff = diffDays * 24 * 60 + start - currentTime;
-
-        // Handle ongoing classes (even if past midnight)
         const classEndDiff = diffDays * 24 * 60 + end - currentTime;
+
+        // If class is ongoing now
         if (totalMinutesDiff <= 0 && classEndDiff > 0) {
-          // class currently ongoing
           return { ...cls, dayLabel: "Today" };
         }
 
