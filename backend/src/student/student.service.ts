@@ -5,111 +5,82 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 export class StudentService {
   private db = getFirestore();
 
-  // ---------------- Join Class (top-level classes collection) ----------------
   async joinClassByLink(studentId: string, classId: string) {
-    if (!studentId || !classId) {
-      throw new BadRequestException('Missing studentId or classId');
-    }
-
+    if (!studentId || !classId) throw new BadRequestException('Missing studentId or classId');
     const classRef = this.db.collection('classes').doc(classId);
     const classSnap = await classRef.get();
     if (!classSnap.exists) throw new NotFoundException('Class not found');
 
-    // Check if already joined in class's students subcollection
     const enrollmentRef = classRef.collection('students').doc(studentId);
-    const enrollmentSnap = await enrollmentRef.get();
-    if (enrollmentSnap.exists) {
+    if ((await enrollmentRef.get()).exists) {
       return { success: false, message: 'You already joined this class' };
     }
 
-    // Enroll student in class
     await enrollmentRef.set({ joinedAt: new Date().toISOString() });
+    await this.db.collection('students').doc(studentId)
+      .set({ classes: FieldValue.arrayUnion(classId) }, { merge: true });
 
-    // Add classId to student's classes array (array of strings)
-    const studentRef = this.db.collection('students').doc(studentId);
-    await studentRef.set({ classes: FieldValue.arrayUnion(classId) }, { merge: true });
-
-    // Return full class info for convenience
     const classData = classSnap.data() || {};
-    const responseClass = {
-      id: classId,
-      name: classData.name ?? '',
-      subjectName: classData.subjectName ?? '',
-      teacherId: classData.teacherId ?? '',
-      roomId: classData.roomId ?? classData.roomNumber ?? '',
-      roomNumber: classData.roomNumber ?? classData.roomId ?? '',
-      section: classData.section ?? '',
-      gradeLevel: classData.gradeLevel ?? '',
-      days: classData.days ?? '',
-      time: classData.time ?? '',
-    };
-
     return {
       success: true,
       message: 'Class joined successfully',
-      class: responseClass,
+      class: {
+        id: classId,
+        name: classData.name ?? '',
+        subjectName: classData.subjectName ?? '',
+        teacherId: classData.teacherId ?? '',
+        roomId: classData.roomId ?? classData.roomNumber ?? '',
+        roomNumber: classData.roomNumber ?? classData.roomId ?? '',
+        section: classData.section ?? '',
+        gradeLevel: classData.gradeLevel ?? '',
+        days: classData.days ?? '',
+        time: classData.time ?? '',
+      },
     };
   }
 
-  // ---------------- Leave Class (top-level classes collection) ----------------
   async leaveClass(studentId: string, classId: string) {
-    if (!studentId || !classId) {
-      throw new BadRequestException('Missing studentId or classId');
-    }
-
+    if (!studentId || !classId) throw new BadRequestException('Missing studentId or classId');
     const classRef = this.db.collection('classes').doc(classId);
-    const classSnap = await classRef.get();
-    if (!classSnap.exists) throw new NotFoundException('Class not found');
+    if (!(await classRef.get()).exists) throw new NotFoundException('Class not found');
 
-    // Remove from class's students subcollection
     await classRef.collection('students').doc(studentId).delete();
-
-    // Remove classId from student's classes array
-    const studentRef = this.db.collection('students').doc(studentId);
-    await studentRef.set({ classes: FieldValue.arrayRemove(classId) }, { merge: true });
+    await this.db.collection('students').doc(studentId)
+      .set({ classes: FieldValue.arrayRemove(classId) }, { merge: true });
 
     return { success: true, message: 'Successfully left the class' };
   }
 
-  // ---------------- Get Notifications ----------------
   async getStudentNotifications(studentId: string) {
-    const studentRef = this.db.collection('students').doc(studentId);
-    const studentSnap = await studentRef.get();
+    const studentSnap = await this.db.collection('students').doc(studentId).get();
     if (!studentSnap.exists) throw new NotFoundException('Student not found');
-
     const studentData = studentSnap.data() || {};
     const classIds: string[] = Array.isArray(studentData.classes) ? studentData.classes : [];
 
     const notifications: any[] = [];
-
     for (const classId of classIds) {
       const classRef = this.db.collection('classes').doc(classId);
-      const classSnap = await classRef.get();
-      if (!classSnap.exists) continue;
+      const clsSnap = await classRef.get();
+      if (!clsSnap.exists) continue;
 
-      const cls = classSnap.data() || {};
-      const subjectName = (cls.subjectName || 'Untitled Subject') as string;
-      const teacherId = (cls.teacherId || '') as string;
-
-      // Fetch teacher's name
+      const cls = clsSnap.data() || {};
+      const subjectName = cls.subjectName || 'Untitled Subject';
+      const teacherId = cls.teacherId || '';
       let teacherName = 'Unknown Teacher';
       if (teacherId) {
-        const teacherSnap = await this.db.collection('teachers').doc(teacherId).get();
-        if (teacherSnap.exists) {
-          const t = teacherSnap.data() || {};
-          const firstName = t.firstName ?? t.firstname ?? '';
-          const middleName = t.middleName ?? t.middlename ?? '';
-          const lastName = t.lastName ?? t.lastname ?? '';
-          teacherName = `${firstName} ${middleName} ${lastName}`.replace(/\s+/g, ' ').trim() || 'Unknown Teacher';
+        const tSnap = await this.db.collection('teachers').doc(teacherId).get();
+        if (tSnap.exists) {
+          const t = tSnap.data() || {};
+          teacherName = `${t.firstName ?? t.firstname ?? ''} ${t.middleName ?? t.middlename ?? ''} ${t.lastName ?? t.lastname ?? ''}`
+            .replace(/\s+/g, ' ').trim() || 'Unknown Teacher';
         }
       }
 
-      // Fetch posts from classes/{classId}/posts (ordered by timestamp desc)
       const postsSnap = await classRef.collection('posts').orderBy('timestamp', 'desc').get();
-      postsSnap.forEach((doc) => {
-        const post = doc.data() || {};
+      postsSnap.forEach(p => {
+        const post = p.data() || {};
         notifications.push({
-          id: doc.id,
+          id: p.id,
           title: `${subjectName} — ${teacherName}`,
           content: post.content || 'No content provided.',
           createdAt: post.timestamp || new Date().toISOString(),
@@ -119,52 +90,75 @@ export class StudentService {
       });
     }
 
-    // Sort by createdAt DESC
-    notifications.sort(
-      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-    );
-
+    notifications.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     return notifications;
   }
 
-  // ---------------- Get Student Schedule ----------------
   async getStudentSchedule(studentId: string) {
-    const studentRef = this.db.collection('students').doc(studentId);
-    const studentSnap = await studentRef.get();
+    const studentSnap = await this.db.collection('students').doc(studentId).get();
     if (!studentSnap.exists) throw new NotFoundException('Student not found');
 
     const studentData = studentSnap.data() || {};
-    const classIds: string[] = Array.isArray(studentData.classes) ? studentData.classes : [];
+    const section = (studentData.section || '').toString().trim();
+    const gradeLevel = (studentData.gradelevel ?? studentData.gradeLevel ?? '').toString().trim();
 
+    const buildSectionKey = (gl: string, sec: string) => (gl && sec ? `${gl}-${sec}` : gl || sec || '');
+
+    if (section || gradeLevel) {
+      const schedSnap = await this.db.collection('schedules').doc('sectionschedule').get();
+      if (schedSnap.exists) {
+        const docData = schedSnap.data() || {};
+        const sectionKey = buildSectionKey(gradeLevel, section);
+
+        // Try 11-A, then section, then gradeLevel as fallbacks
+        let bySection: any =
+          docData[sectionKey] ??
+          docData[section] ??
+          docData[gradeLevel];
+
+        const normalizeArrayOrNumericMap = (value: any): any[] => {
+          if (!value) return [];
+          if (Array.isArray(value)) return value;
+          if (typeof value === 'object') {
+            return Object.keys(value).sort((a, b) => Number(a) - Number(b)).map(k => value[k]);
+          }
+          return [];
+        };
+
+        const normalizeItem = (it: any) => {
+          if (!it) return null;
+          return {
+            subjectName: it.Subject ?? it.subjectName ?? it.subject ?? it.section ?? 'N/A',
+            days: it.days ?? it.Days ?? it.day ?? it.Day ?? 'N/A',
+            time: it.time ?? it.Time ?? 'N/A',
+            roomNumber: it.roomNumber ?? it.room ?? it.Room ?? 'N/A',
+            teacherName: it.Teacher ?? it.teacherName ?? it.teacher ?? null,
+          };
+        };
+
+        return normalizeArrayOrNumericMap(bySection)
+          .map(normalizeItem)
+          .filter(Boolean);
+      }
+    }
+
+    // Fallback to class-based
+    const classIds: string[] = Array.isArray(studentData.classes) ? studentData.classes : [];
     if (!classIds.length) return [];
 
     const results: any[] = [];
     for (const id of classIds) {
-      const snap = await this.db.collection('classes').doc(id).get();
-      if (!snap.exists) continue;
-      results.push({ id, ...snap.data() });
+      const clsSnap = await this.db.collection('classes').doc(id).get();
+      if (!clsSnap.exists) continue;
+      results.push({ id, ...clsSnap.data() });
     }
-
     return results;
   }
 
-  // ---------------- Save Profile Picture ----------------
   async saveProfilePicture(studentId: string, imageUrl: string) {
     if (!imageUrl) throw new BadRequestException('No image URL provided');
-
-    const studentRef = this.db.collection('students').doc(studentId);
-    await studentRef.set(
-      {
-        profilePicUrl: imageUrl,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true },
-    );
-
-    return {
-      success: true,
-      message: 'Profile picture uploaded successfully',
-      imageUrl,
-    };
+    await this.db.collection('students').doc(studentId)
+      .set({ profilePicUrl: imageUrl, updatedAt: new Date().toISOString() }, { merge: true });
+    return { success: true, message: 'Profile picture uploaded successfully', imageUrl };
   }
 }

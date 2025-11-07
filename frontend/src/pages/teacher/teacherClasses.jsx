@@ -16,10 +16,6 @@ import useClasses from "./components/hooks/useClasses";
 import usePosts from "./components/hooks/usePosts";
 import useStudents from "./components/hooks/useStudents";
 
-/**
- * Concise CurrentClasses page that delegates logic into hooks/components.
- * Behavior and UI identical to your original file.
- */
 export default function CurrentClasses() {
   const teacherId = auth.currentUser?.uid;
   const [selectedClass, setSelectedClass] = useState(null);
@@ -49,7 +45,7 @@ export default function CurrentClasses() {
   const { posts, refreshPosts, addPostToState } = usePosts(teacherId, selectedClass);
   const { students, refreshStudents } = useStudents(teacherId, selectedClass);
 
-  // When opening modal from Add Class button we still check profile like before.
+  // UPDATED: Removed any dependency on profilePicBinary
   const onAddClassClick = async () => {
     const teacherIdLocal = auth.currentUser?.uid;
     if (!teacherIdLocal) return;
@@ -66,8 +62,14 @@ export default function CurrentClasses() {
         return;
       }
 
-      const teacherData = teacherDoc.data();
-      const hasProfilePic = !!teacherData.profilePicBinary;
+      const teacherData = teacherDoc.data() || {};
+      // Accept URL (Cloudinary), base64 field, or Firebase Auth photoURL
+      const hasProfilePic =
+        Boolean(
+          (typeof teacherData.profilePicUrl === "string" && teacherData.profilePicUrl.trim()) ||
+          (typeof teacherData.profilePic === "string" && teacherData.profilePic.trim()) ||
+          (typeof auth.currentUser?.photoURL === "string" && auth.currentUser.photoURL.trim())
+        );
 
       if (!hasProfilePic) {
         Swal.fire({
@@ -112,20 +114,17 @@ export default function CurrentClasses() {
     }
   };
 
-  // keep refresh helpers available (e.g., when class is selected)
   const onViewClass = (cls) => {
     setActiveTab("posts");
     setPreview(null);
     setDropdownOpenId(null);
-    setClasses((prev) => prev); // no-op but keeps parity
+    setClasses((prev) => prev);
     setPreview(null);
     setSelectedClass(cls);
-    // refresh posts and students for the selected class
     refreshPosts();
     refreshStudents();
   };
 
-  // Short render: all heavy lifting is in hooks/components
   if (selectedClass) {
     return (
       <TeacherLayout title={`${selectedClass.subjectName} - ${selectedClass.section}`}>
@@ -198,7 +197,6 @@ export default function CurrentClasses() {
     );
   }
 
-  // default view
   return (
     <TeacherLayout title="Current Classes">
       <div className="min-h-screen bg-gray-50 p-10">

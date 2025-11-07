@@ -48,7 +48,6 @@ export class TeacherService {
     };
   }
 
-  // Add Class (top-level "classes") + mirror to teachers/{teacherId}: { classes: [id], subjects: [subjectName] }
   async addClass(data: any) {
     const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = data;
     if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel) {
@@ -61,11 +60,8 @@ export class TeacherService {
 
     const classDoc = this.buildClassDoc(data);
     await classRef.set(classDoc);
-
-    // Ensure no stray "subject" key
     await classRef.update({ subject: FieldValue.delete() });
 
-    // Mirror into teacher doc
     const teacherRef = this.db.collection("teachers").doc(teacherId);
     await teacherRef.set(
       {
@@ -79,7 +75,6 @@ export class TeacherService {
     return { success: true, id: classRef.id };
   }
 
-  // Get Classes
   async getClasses(teacherId: string) {
     const classesCol = this.db.collection("classes");
     try {
@@ -101,7 +96,6 @@ export class TeacherService {
 
       if (!needsIndex) throw e;
 
-      // Fallback without index: where only then sort in memory
       const snapNoOrder = await classesCol.where("teacherId", "==", teacherId).get();
       const classes = snapNoOrder.docs
         .map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -111,7 +105,6 @@ export class TeacherService {
     }
   }
 
-  // Update Class — recompute name, remove "subject", and sync teacher's subjects/classes arrays
   async updateClass(teacherId: string, classId: string, data: any) {
     const classRef = this.db.collection("classes").doc(classId);
     const docSnap = await classRef.get();
@@ -123,32 +116,27 @@ export class TeacherService {
     }
 
     const oldSubject = (cls?.subjectName || "").trim();
-
     const updated = this.buildClassDoc({ ...cls, ...data });
 
     await classRef.update({
       ...updated,
       updatedAt: new Date().toISOString(),
-      // Remove fields we don't want to persist
       subject: FieldValue.delete(),
       schedule: FieldValue.delete(),
       startTime: FieldValue.delete(),
       endTime: FieldValue.delete(),
     });
 
-    // Mirror: ensure classId present and add new subject if changed
     const teacherRef = this.db.collection("teachers").doc(teacherId);
     await teacherRef.set(
       {
         classes: FieldValue.arrayUnion(classId),
-        // Add current subject in case it's new
         subjects: FieldValue.arrayUnion(updated.subjectName),
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
     );
 
-    // If subject changed, and no other classes use the old subject, remove it
     const newSubject = (updated.subjectName || "").trim();
     if (oldSubject && newSubject && oldSubject !== newSubject) {
       const othersSnap = await this.db
@@ -156,45 +144,40 @@ export class TeacherService {
         .where("teacherId", "==", teacherId)
         .where("subjectName", "==", oldSubject)
         .get();
-
-      // After the update above, this class no longer matches oldSubject.
       if (othersSnap.empty) {
         await teacherRef.update({ subjects: FieldValue.arrayRemove(oldSubject) });
       }
     }
 
-    // 🔄 Sync minimal fields to each student's legacy classes[] entry — safe no-op if IDs-only schema
+    // Legacy student class object sync
     const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
       const studentRef = this.db.collection("students").doc(studentId);
       const studentSnap = await studentRef.get();
-
-      if (studentSnap.exists) {
-        const studentData = studentSnap.data() as any;
-        if (Array.isArray(studentData?.classes) && studentData.classes.length) {
-          const allStrings = studentData.classes.every((c: any) => typeof c === "string");
-          if (allStrings) continue;
-
-          const updatedClasses = studentData.classes.map((c: any) =>
-            c.id === classId
-              ? {
-                  ...c,
-                  id: classId,
-                  name: updated.name,
-                  subjectName: updated.subjectName,
-                  teacherId: updated.teacherId,
-                  roomId: updated.roomId,
-                  roomNumber: updated.roomNumber,
-                  section: updated.section,
-                  gradeLevel: updated.gradeLevel,
-                  days: updated.days,
-                  time: updated.time,
-                }
-              : c
-          );
-          await studentRef.update({ classes: updatedClasses });
-        }
+      if (!studentSnap.exists) continue;
+      const studentData = studentSnap.data() as any;
+      if (Array.isArray(studentData.classes) && studentData.classes.length) {
+        const allStrings = studentData.classes.every((c: any) => typeof c === "string");
+        if (allStrings) continue;
+        const updatedClasses = studentData.classes.map((c: any) =>
+          c.id === classId
+            ? {
+                ...c,
+                id: classId,
+                name: updated.name,
+                subjectName: updated.subjectName,
+                teacherId: updated.teacherId,
+                roomId: updated.roomId,
+                roomNumber: updated.roomNumber,
+                section: updated.section,
+                gradeLevel: updated.gradeLevel,
+                days: updated.days,
+                time: updated.time,
+              }
+            : c
+        );
+        await studentRef.update({ classes: updatedClasses });
       }
     }
 
@@ -205,7 +188,6 @@ export class TeacherService {
     const classRef = this.db.collection("classes").doc(classId);
     const docSnap = await classRef.get();
     if (!docSnap.exists) throw new NotFoundException("Class not found");
-
     const cls = docSnap.data();
     if (cls?.teacherId !== teacherId) {
       throw new BadRequestException("You do not have permission to delete this class.");
@@ -213,52 +195,44 @@ export class TeacherService {
 
     const subjectToMaybeRemove = (cls?.subjectName || "").trim();
 
-    // Remove class reference from students
     const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
       const studentRef = this.db.collection("students").doc(studentId);
       const studentSnap = await studentRef.get();
-
-      if (studentSnap.exists) {
-        const studentData = studentSnap.data() as any;
-        if (Array.isArray(studentData?.classes) && studentData.classes.length) {
-          const allStrings = studentData.classes.every((c: any) => typeof c === "string");
-          if (allStrings) {
-            await studentRef.update({ classes: FieldValue.arrayRemove(classId) });
-          } else {
-            const updatedClasses = studentData.classes.filter((c: any) => c.id !== classId);
-            await studentRef.update({ classes: updatedClasses });
-          }
+      if (!studentSnap.exists) continue;
+      const studentData = studentSnap.data() as any;
+      if (Array.isArray(studentData.classes) && studentData.classes.length) {
+        const allStrings = studentData.classes.every((c: any) => typeof c === "string");
+        if (allStrings) {
+          await studentRef.update({ classes: FieldValue.arrayRemove(classId) });
+        } else {
+          const updatedClasses = studentData.classes.filter((c: any) => c.id !== classId);
+          await studentRef.update({ classes: updatedClasses });
         }
       }
     }
 
-    // Delete posts and students subcollections
     const postsSnapshot = await classRef.collection("posts").get();
     const batch = this.db.batch();
     postsSnapshot.docs.forEach((d) => batch.delete(d.ref));
     studentsSnapshot.docs.forEach((d) => batch.delete(d.ref));
     await batch.commit();
 
-    // Delete class document
     await classRef.delete();
 
-    // Mirror cleanup in teacher doc
     const teacherRef = this.db.collection("teachers").doc(teacherId);
     await teacherRef.update({
       classes: FieldValue.arrayRemove(classId),
       updatedAt: new Date().toISOString(),
     });
 
-    // If no other classes with this subject remain, remove the subject from teacher.subjects
     if (subjectToMaybeRemove) {
       const othersSnap = await this.db
         .collection("classes")
         .where("teacherId", "==", teacherId)
         .where("subjectName", "==", subjectToMaybeRemove)
         .get();
-
       if (othersSnap.empty) {
         await teacherRef.update({ subjects: FieldValue.arrayRemove(subjectToMaybeRemove) });
       }
@@ -267,11 +241,9 @@ export class TeacherService {
     return { success: true, message: "Class deleted successfully" };
   }
 
-  // Posts unchanged (top-level classes/{classId}/posts)
   async addPost(data: any) {
     const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = data;
     if (!teacherId || !classId) throw new BadRequestException("Missing teacherId or classId");
-
     const classRef = this.db.collection("classes").doc(classId);
     const classSnap = await classRef.get();
     if (!classSnap.exists) throw new NotFoundException("Class not found");
@@ -281,7 +253,6 @@ export class TeacherService {
     if (!content && !fileUrl && !imageUrl) {
       throw new BadRequestException("Post must include text, image, or file.");
     }
-
     const post = {
       teacherId,
       classId,
@@ -292,7 +263,6 @@ export class TeacherService {
       fileType: fileType ?? null,
       timestamp: new Date().toISOString(),
     };
-
     const postRef = await classRef.collection("posts").add(post);
     return { success: true, post: { id: postRef.id, ...post } };
   }
@@ -304,7 +274,6 @@ export class TeacherService {
     if (classSnap.data()?.teacherId !== teacherId) {
       throw new BadRequestException("You do not have permission to view posts for this class.");
     }
-
     const postsSnapshot = await classRef.collection("posts").orderBy("timestamp", "desc").get();
     const posts = postsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     return { success: true, posts };
@@ -317,7 +286,6 @@ export class TeacherService {
     if (classSnap.data()?.teacherId !== teacherId) {
       throw new BadRequestException("You do not have permission to view students for this class.");
     }
-
     const studentsSnapshot = await classRef.collection("students").get();
     if (studentsSnapshot.empty)
       return { success: true, students: [], message: "No students have joined yet." };
@@ -330,32 +298,26 @@ export class TeacherService {
         return {
           id: studentId,
           joinedAt: doc.data().joinedAt,
-          firstName: (studentData as any)?.firstName || (studentData as any)?.firstname || null,
-          middleName: (studentData as any)?.middleName || (studentData as any)?.middlename || null,
-          lastName: (studentData as any)?.lastName || (studentData as any)?.lastname || null,
-          email: (studentData as any)?.school_email || (studentData as any)?.personal_email || null,
-          status: (studentData as any)?.status || null,
+            firstName: (studentData as any)?.firstName || (studentData as any)?.firstname || null,
+            middleName: (studentData as any)?.middleName || (studentData as any)?.middlename || null,
+            lastName: (studentData as any)?.lastName || (studentData as any)?.lastname || null,
+            email: (studentData as any)?.school_email || (studentData as any)?.personal_email || null,
+            status: (studentData as any)?.status || null,
         };
       })
     );
-
     return { success: true, students };
   }
 
   async getTeacherStats(teacherId: string) {
     const classesSnapshot = await this.db.collection("classes").where("teacherId", "==", teacherId).get();
-
     if (classesSnapshot.empty)
       return { success: true, totalClasses: 0, totalStudents: 0, totalSubjects: 0 };
-
     const subjectSet = new Set<string>();
-
     for (const classDoc of classesSnapshot.docs) {
       const classData: any = classDoc.data();
       if (classData.subjectName) subjectSet.add((classData.subjectName as string).trim());
-      // You can also aggregate student counts by reading subcollections if desired
     }
-
     return {
       success: true,
       totalClasses: classesSnapshot.size,
@@ -366,13 +328,32 @@ export class TeacherService {
 
   async saveProfilePicture(teacherId: string, imageUrl: string) {
     if (!imageUrl) throw new BadRequestException("No image URL provided");
-
     const teacherRef = this.db.collection("teachers").doc(teacherId);
     await teacherRef.set(
       { profilePicUrl: imageUrl, updatedAt: new Date().toISOString() },
       { merge: true }
     );
-
     return { success: true, message: "Profile picture uploaded successfully", imageUrl };
+  }
+
+  // NEW: Attendance sessions fetch
+  async getAttendanceSessions(teacherId: string, classId?: string) {
+    if (!teacherId) throw new BadRequestException("teacherId is required");
+
+    let queryRef: FirebaseFirestore.Query = this.db
+      .collection("attendance_sessions")
+      .where("teacherId", "==", teacherId);
+
+    if (classId) {
+      queryRef = queryRef.where("classId", "==", classId);
+    }
+
+    const snapshot = await queryRef.orderBy("timeStarted", "desc").get();
+    const sessions = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
+
+    return { success: true, sessions };
   }
 }

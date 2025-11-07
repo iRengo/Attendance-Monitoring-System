@@ -41,6 +41,31 @@ export class AdminController {
     return { success: true, results: result };
   }
 
+  // ✅ Add a single student (manual)
+  @Post('add-student')
+  async addStudent(
+    @Body()
+    body: {
+      firstname?: string;
+      middlename?: string;
+      lastname?: string;
+      personal_email?: string;
+      guardianname?: string;
+      guardiancontact?: string;
+      gradelevel?: string;
+      section?: string;
+      [key: string]: any;
+    },
+  ) {
+    if (!body || !body.firstname || !body.lastname || !body.personal_email) {
+      throw new BadRequestException(
+        'Missing required fields: firstname, lastname, personal_email',
+      );
+    }
+    const result = await this.adminService.addStudent(body);
+    return { success: true, result };
+  }
+
   // ✅ Toggle maintenance mode
   @Post('toggle-maintenance')
   async toggleMaintenance(@Body() body: { enabled: boolean }) {
@@ -99,16 +124,15 @@ export class AdminController {
     return { success: true, activities };
   }
 
-   // ✅ Upload Profile Picture (Actual Image) for Admin
-   @Post('upload-profile-picture/:adminId')
-   @UseInterceptors(FileInterceptor('file', { storage }))
-   async uploadProfilePicture(
-     @Param('adminId') adminId: string,
-     @UploadedFile() file: Express.Multer.File,
-   ) {
-     if (!file) throw new BadRequestException('No file uploaded');
-     // file.path should be the Cloudinary URL/path returned by the storage adapter
-     return await this.adminService.saveProfilePicture(adminId, file.path);
-   }
- }
-
+  // ✅ Upload Profile Picture (Actual Image) for Admin
+  @Post('upload-profile-picture/:adminId')
+  @UseInterceptors(FileInterceptor('file', { storage }))
+  async uploadProfilePicture(
+    @Param('adminId') adminId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    // file.path should be the Cloudinary URL/path returned by the storage adapter
+    return await this.adminService.saveProfilePicture(adminId, file.path);
+  }
+}

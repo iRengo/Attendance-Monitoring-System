@@ -19,7 +19,6 @@ import { storage } from "../cloudinary.config";
 export class TeacherController {
   constructor(private readonly teacherService: TeacherService) {}
 
-  // ✅ Add Class (still validates same fields to keep UI unchanged)
   @Post("add-class")
   async addClass(@Body() body: any) {
     const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
@@ -28,14 +27,12 @@ export class TeacherController {
     return await this.teacherService.addClass(body);
   }
 
-  // ✅ Get Teacher Classes (reads from top-level classes collection)
   @Get("classes")
   async getClasses(@Query("teacherId") teacherId: string) {
     if (!teacherId) throw new BadRequestException("Teacher ID is required.");
     return await this.teacherService.getClasses(teacherId);
   }
 
-  // ✅ Update Class
   @Put("update-class/:classId")
   async updateClass(@Param("classId") classId: string, @Body() body: any) {
     const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
@@ -44,7 +41,6 @@ export class TeacherController {
     return await this.teacherService.updateClass(teacherId, classId, body);
   }
 
-  // ✅ Delete Class
   @Delete("delete-class/:classId")
   async deleteClass(
     @Param("classId") classId: string,
@@ -54,7 +50,6 @@ export class TeacherController {
     return await this.teacherService.deleteClass(teacherId, classId);
   }
 
-  // ✅ Add Post
   @Post("add-post")
   async addPost(@Body() body: any) {
     const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = body;
@@ -72,7 +67,6 @@ export class TeacherController {
     });
   }
 
-  // ✅ Get Class Posts
   @Get("class-posts")
   async getClassPosts(
     @Query("teacherId") teacherId: string,
@@ -83,7 +77,6 @@ export class TeacherController {
     return await this.teacherService.getClassPosts(teacherId, classId);
   }
 
-  // ✅ Get Students in a Class
   @Get("class-students")
   async getClassStudents(
     @Query("teacherId") teacherId: string,
@@ -94,14 +87,12 @@ export class TeacherController {
     return await this.teacherService.getClassStudents(teacherId, classId);
   }
 
-  // ✅ Dashboard Stats
   @Get("stats")
   async getTeacherStats(@Query("teacherId") teacherId: string) {
     if (!teacherId) throw new BadRequestException("Teacher ID is required.");
     return await this.teacherService.getTeacherStats(teacherId);
   }
 
-  // ✅ Upload Profile Picture
   @Post("upload-profile-picture/:teacherId")
   @UseInterceptors(FileInterceptor("file", { storage }))
   async uploadProfilePicture(
@@ -110,5 +101,15 @@ export class TeacherController {
   ) {
     if (!file) throw new BadRequestException("No file uploaded");
     return await this.teacherService.saveProfilePicture(teacherId, file.path);
+  }
+
+  // NEW: Attendance sessions endpoint
+  @Get("attendance-sessions")
+  async getAttendanceSessions(
+    @Query("teacherId") teacherId: string,
+    @Query("classId") classId?: string
+  ) {
+    if (!teacherId) throw new BadRequestException("Teacher ID is required.");
+    return await this.teacherService.getAttendanceSessions(teacherId, classId);
   }
 }

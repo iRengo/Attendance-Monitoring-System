@@ -7,20 +7,64 @@ import logoImage from "../../assets/images/aics_logo.png";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function normalizeArrayOrNumericMap(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "object") {
+    return Object.keys(value)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => value[k]);
+  }
+  return [];
+}
+
+function normalizeItem(it) {
+  if (!it || typeof it !== "object") return null;
+
+  // subject fallback includes accidental "section" key used in your sample
+  const subjectName = it.Subject ?? it.subjectName ?? it.subject ?? it.section ?? "N/A";
+  const days = it.days ?? it.Days ?? it.day ?? it.Day ?? "N/A";
+  const time = it.time ?? it.Time ?? "N/A";
+  const roomNumber = it.roomNumber ?? it.room ?? it.Room ?? "N/A";
+  const teacherName = it.Teacher ?? it.teacherName ?? it.teacher ?? null;
+  const teacherId = it.teacherId ?? null;
+
+  return { subjectName, days, time, roomNumber, teacherName, teacherId };
+}
+
+function sortByDay(a, b) {
+  const ai = DAY_ORDER.indexOf(a.days);
+  const bi = DAY_ORDER.indexOf(b.days);
+  if (ai === -1 && bi === -1) return 0;
+  if (ai === -1) return 1;
+  if (bi === -1) return -1;
+  return ai - bi;
+}
+
+function buildSectionKey(gradeLevelRaw, sectionRaw) {
+  const gl = String(gradeLevelRaw ?? "").trim();
+  const sec = String(sectionRaw ?? "").trim();
+  if (gl && sec) return `${gl}-${sec}`;
+  return gl || sec || ""; // partial fallback
+}
+
 export default function StudentDashboard() {
   const [announcements, setAnnouncements] = useState([]);
-  const [schedules, setSchedules] = useState([]); // array of full class objects from top-level classes collection
-  const [teachers, setTeachers] = useState({});
+  const [schedules, setSchedules] = useState([]);
   const [studentId, setStudentId] = useState(null);
+  const [computedKey, setComputedKey] = useState("");
 
-  const attendance = {
-    present: 18,
-    absent: 2,
-    late: 1,
-    rate: "90%",
-  };
+  // Dynamic attendance stats (computed from Firestore)
+  const [attendance, setAttendance] = useState({
+    present: 0,
+    absent: 0,
+    late: 0,
+    rate: "0%",
+  });
 
-  // ✅ Track logged-in student
+  // Auth
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) setStudentId(user.uid);
@@ -29,7 +73,7 @@ export default function StudentDashboard() {
     return () => unsubscribe();
   }, []);
 
-  // ✅ Fetch Announcements
+  // Announcements
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "announcements"), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -47,76 +91,117 @@ export default function StudentDashboard() {
     return () => unsub();
   }, []);
 
-  // ✅ Fetch student’s schedules from top-level classes collection
+  // Attendance stats (present/absent/late + rate) from students/{id}/attendance
+  useEffect(() => {
+    if (!studentId) return;
+    const attendRef = collection(db, "students", studentId, "attendance");
+    const unsub = onSnapshot(
+      attendRef,
+      (snap) => {
+        let present = 0;
+        let absent = 0;
+        let late = 0;
+
+        snap.docs.forEach((d) => {
+          const status = String(d.data()?.status || "").toLowerCase();
+          if (status === "present") present += 1;
+          else if (status === "absent") absent += 1;
+          else if (status === "late") late += 1;
+        });
+
+        const total = present + absent + late;
+        // If you want to treat "late" as present for the rate, change numerator to (present + late)
+        const ratePct = total ? Math.round((present / total) * 100) : 0;
+        setAttendance({
+          present,
+          absent,
+          late,
+          rate: `${ratePct}%`,
+        });
+      },
+      (err) => {
+        console.error("Error loading attendance stats:", err);
+        setAttendance({ present: 0, absent: 0, late: 0, rate: "0%" });
+      }
+    );
+
+    return () => unsub();
+  }, [studentId]);
+
+  // Schedules by SectionKey (e.g., "11-A")
   useEffect(() => {
     if (!studentId) return;
 
-    const fetchSchedules = async () => {
-      try {
-        const studentDoc = await getDoc(doc(db, "students", studentId));
-        if (!studentDoc.exists()) {
+    const studentRef = doc(db, "students", studentId);
+    let unsubSchedule = null;
+
+    const unsubStudent = onSnapshot(
+      studentRef,
+      (snap) => {
+        if (!snap.exists()) {
           setSchedules([]);
-          setTeachers({});
+          setComputedKey("");
+          if (unsubSchedule) unsubSchedule();
+          unsubSchedule = null;
           return;
         }
+        const data = snap.data() || {};
+        const section = String(data.section || "").trim();
+        const gradeLevel = String(data.gradelevel ?? data.gradeLevel ?? "").trim();
 
-        const studentData = studentDoc.data() || {};
-        const rawClasses = Array.isArray(studentData.classes) ? studentData.classes : [];
-
-        // Support both schemas:
-        // - New: classes = ["classId001", "classId002"]
-        // - Legacy: classes = [{ id, subjectName, ... }]
-        const isIdArray = rawClasses.every((c) => typeof c === "string");
-
-        let classList = [];
-        if (isIdArray) {
-          // Expand class IDs to full docs from top-level "classes"
-          const ids = [...new Set(rawClasses)];
-          const docs = await Promise.all(
-            ids.map(async (id) => {
-              const snap = await getDoc(doc(db, "classes", id));
-              return snap.exists() ? { id: snap.id, ...snap.data() } : null;
-            })
-          );
-          classList = docs.filter(Boolean);
-        } else {
-          // Legacy embedded objects — use as-is
-          classList = rawClasses
-            .map((c) => (c && typeof c === "object" ? c : null))
-            .filter(Boolean);
+        // Build "11-A" like key
+        const sectionKey = buildSectionKey(gradeLevel, section);
+        if (!sectionKey) {
+          setSchedules([]);
+          setComputedKey("");
+          if (unsubSchedule) unsubSchedule();
+          unsubSchedule = null;
+          return;
         }
+        setComputedKey(sectionKey);
 
-        setSchedules(classList);
-
-        // Fetch teacher names for display
-        const teacherIds = [...new Set(classList.map((c) => c.teacherId).filter(Boolean))];
-        const teacherMap = {};
-        await Promise.all(
-          teacherIds.map(async (id) => {
-            const tDoc = await getDoc(doc(db, "teachers", id));
-            if (tDoc.exists()) {
-              const t = tDoc.data() || {};
-              const name = `${t.firstName || t.firstname || ""} ${t.middleName || t.middlename || ""} ${t.lastName || t.lastname || ""}`
-                .replace(/\s+/g, " ")
-                .trim();
-              teacherMap[id] = name || "Unknown Teacher";
-            } else {
-              teacherMap[id] = "Unknown Teacher";
+        const scheduleRef = doc(db, "schedules", "sectionschedule");
+        if (unsubSchedule) unsubSchedule();
+        unsubSchedule = onSnapshot(
+          scheduleRef,
+          (s) => {
+            if (!s.exists()) {
+              setSchedules([]);
+              return;
             }
-          })
-        );
-        setTeachers(teacherMap);
-      } catch (err) {
-        console.error("Error fetching schedules:", err);
-        setSchedules([]);
-        setTeachers({});
-      }
-    };
+            const schedData = s.data() || {};
 
-    fetchSchedules();
+            // Try strict "11-A" first; then fallbacks for migration period
+            let bySection =
+              schedData[sectionKey] ??
+              schedData[section] ?? // A
+              schedData[gradeLevel]; // 11
+
+            const arr = normalizeArrayOrNumericMap(bySection)
+              .map(normalizeItem)
+              .filter(Boolean)
+              .sort(sortByDay);
+            setSchedules(arr);
+          },
+          (e) => {
+            console.error("Failed to load schedules:", e);
+            setSchedules([]);
+          }
+        );
+      },
+      (e) => {
+        console.error("Failed to listen to student:", e);
+        setSchedules([]);
+      }
+    );
+
+    return () => {
+      unsubStudent();
+      if (unsubSchedule) unsubSchedule();
+    };
   }, [studentId]);
 
-  // ✅ PDF Export Function
+  // PDF Export
   const exportToPDF = async () => {
     if (!studentId) return;
 
@@ -134,18 +219,15 @@ export default function StudentDashboard() {
         .replace(/\s+/g, " ")
         .trim();
 
-      const gradeLevel =
-        schedules.length > 0 ? schedules[0].gradeLevel || "N/A" : "N/A";
+      const gradeLevel = studentData.gradelevel || studentData.gradeLevel || "N/A";
+      const section = studentData.section || "N/A";
 
       const docPDF = new jsPDF();
-
-      // ✅ Add imported logo (top-right)
       const logo = new Image();
       logo.src = logoImage;
       logo.onload = () => {
-        docPDF.addImage(logo, "PNG", 170, 7, 25, 25); // x, y, width, height
+        docPDF.addImage(logo, "PNG", 170, 7, 25, 25);
 
-        // ✅ Header Section
         docPDF.setFont("helvetica", "bold");
         docPDF.setFontSize(18);
         docPDF.text("Asian Institute of Computer Studies", 14, 20);
@@ -153,23 +235,22 @@ export default function StudentDashboard() {
         docPDF.setFontSize(14);
         docPDF.text("Student Class Schedule", 14, 30);
 
-        // ✅ Blue underline for styling
         docPDF.setDrawColor(66, 133, 244);
         docPDF.setLineWidth(0.7);
         docPDF.line(14, 35, 195, 35);
 
-        // ✅ Student Info
         docPDF.setFont("helvetica", "normal");
         docPDF.setFontSize(11);
         docPDF.text(`Name: ${fullName}`, 14, 45);
         docPDF.text(`Grade Level: ${gradeLevel}`, 14, 51);
+        docPDF.text(`Section: ${buildSectionKey(gradeLevel, section) || section}`, 14, 57);
 
         docPDF.setFontSize(9);
         docPDF.setTextColor(100);
-        docPDF.text(`Generated on: ${new Date().toLocaleString()}`, 14, 58);
+        docPDF.text(`Generated on: ${new Date().toLocaleString()}`, 14, 64);
 
         if (schedules.length === 0) {
-          docPDF.text("No schedules available.", 14, 70);
+          docPDF.text("No schedules available.", 14, 76);
         } else {
           const tableColumn = ["Days", "Time", "Subject", "Room", "Teacher"];
           const tableRows = schedules.map((sched) => [
@@ -177,14 +258,13 @@ export default function StudentDashboard() {
             sched.time || "N/A",
             sched.subjectName || "N/A",
             sched.roomNumber || "N/A",
-            teachers[sched.teacherId] || "Unknown",
+            sched.teacherName || "-",
           ]);
 
-          // ✅ Styled Table
           autoTable(docPDF, {
             head: [tableColumn],
             body: tableRows,
-            startY: 65,
+            startY: 71,
             theme: "striped",
             headStyles: {
               fillColor: [66, 133, 244],
@@ -202,7 +282,6 @@ export default function StudentDashboard() {
           });
         }
 
-        // ✅ Footer
         const pageHeight = docPDF.internal.pageSize.height;
         docPDF.setFontSize(9);
         docPDF.setTextColor(120);
@@ -277,6 +356,7 @@ export default function StudentDashboard() {
         <div className="bg-white shadow-sm rounded-xl p-5 overflow-x-auto">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-gray-800">My Schedule</h2>
+            <div className="text-sm text-gray-500">{computedKey && `Section: ${computedKey}`}</div>
             <button
               onClick={exportToPDF}
               className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition"
@@ -291,21 +371,11 @@ export default function StudentDashboard() {
             <table className="min-w-full border border-gray-200 divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">
-                    Days
-                  </th>
-                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">
-                    Time
-                  </th>
-                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">
-                    Subject
-                  </th>
-                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">
-                    Room
-                  </th>
-                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">
-                    Teacher
-                  </th>
+                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">Days</th>
+                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">Time</th>
+                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">Subject</th>
+                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">Room</th>
+                  <th className="py-2 px-4 text-left text-sm font-medium text-gray-700">Teacher</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -316,7 +386,7 @@ export default function StudentDashboard() {
                     <td className="py-2 px-4 text-gray-800">{sched.subjectName || "N/A"}</td>
                     <td className="py-2 px-4 text-gray-800">{sched.roomNumber || "N/A"}</td>
                     <td className="py-2 px-4 text-gray-800">
-                      {teachers[sched.teacherId] || "Loading..."}
+                      {sched.teacherName || "-"}
                     </td>
                   </tr>
                 ))}

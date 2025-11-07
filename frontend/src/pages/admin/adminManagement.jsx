@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import AdminLayout from "../../components/adminLayout";
 import {
   collection,
@@ -7,13 +7,18 @@ import {
   getDoc,
   updateDoc,
   deleteDoc,
-  addDoc,
-  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { logActivity } from "../../utils/logActivity"; // ✅ helper import
+import { logActivity } from "../../utils/logActivity";
+
+import CSVImport from "./components/adminManagement/CSVImport";
+import FiltersSearch from "./components/adminManagement/FiltersSearch";
+import UsersTable from "./components/adminManagement/UsersTable";
+import ViewUserModal from "./components/adminManagement/ViewUserModal";
+import EditUserModal from "./components/adminManagement/EditUserModal";
+import AddStudentModal from "./components/adminManagement/AddStudentModal";
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -22,11 +27,29 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [csvFile, setCsvFile] = useState(null);
   const [importing, setImporting] = useState(false);
-  const [viewModalUser, setViewModalUser] = useState(null);
-  const [editModalUser, setEditModalUser] = useState(null);
+
+  // Swapped panels
+  const [viewUser, setViewUser] = useState(null);
+  const [editUser, setEditUser] = useState(null);
+
+  // Updating flags
   const [updating, setUpdating] = useState(false);
 
-  // Normalize keys
+  // Add Student modal state
+  const [addModalUser, setAddModalUser] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  const defaultNewStudent = {
+    firstname: "",
+    middlename: "",
+    lastname: "",
+    personal_email: "",
+    guardianname: "",
+    guardiancontact: "",
+    gradelevel: "",
+    section: "",
+  };
+
   const normalizeKeys = (data) => {
     const normalized = {};
     for (const key in data) {
@@ -39,7 +62,6 @@ export default function UserManagement() {
     return normalized;
   };
 
-  // Fetch all users
   const fetchAllAccounts = async () => {
     try {
       setLoading(true);
@@ -50,9 +72,7 @@ export default function UserManagement() {
 
       const parseData = (docSnap, role) => {
         const data = normalizeKeys(docSnap.data());
-        const name = `${data.firstname || ""} ${data.middlename || ""} ${
-          data.lastname || ""
-        }`.trim();
+        const name = `${data.firstname || ""} ${data.middlename || ""} ${data.lastname || ""}`.trim();
         const email = data.school_email || data.email || "—";
         return { id: docSnap.id, name, email, role };
       };
@@ -72,7 +92,6 @@ export default function UserManagement() {
     fetchAllAccounts();
   }, []);
 
-  // CSV Import
   const handleCsvChange = (e) => setCsvFile(e.target.files[0]);
 
   const handleImportCsv = async () => {
@@ -84,12 +103,10 @@ export default function UserManagement() {
     try {
       const formData = new FormData();
       formData.append("file", csvFile);
-
       const res = await fetch("http://localhost:3000/admin/import-csv", {
         method: "POST",
         body: formData,
       });
-
       const result = await res.json();
       if (result.success) {
         toast.success("CSV import completed!");
@@ -97,7 +114,6 @@ export default function UserManagement() {
       } else {
         toast.error("CSV import failed.");
       }
-
       fetchAllAccounts();
     } catch (err) {
       console.error(err);
@@ -108,7 +124,7 @@ export default function UserManagement() {
     }
   };
 
-  // View User
+  // View (swap)
   const handleView = async (user) => {
     try {
       const ref = doc(db, user.role.toLowerCase() + "s", user.id);
@@ -123,14 +139,13 @@ export default function UserManagement() {
           const latestClass = normalized.classes
             .slice()
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
-
           if (latestClass) {
-            normalized.gradelevel =
-              latestClass.gradeLevel || normalized.gradelevel || "N/A";
+            normalized.gradelevel = latestClass.gradeLevel || normalized.gradelevel || "N/A";
             normalized.section = latestClass.section || "—";
           }
         }
-        setViewModalUser({ id: user.id, role: user.role, ...normalized });
+        setEditUser(null);
+        setViewUser({ id: user.id, role: user.role, ...normalized });
       } else toast.error("User not found.");
     } catch (err) {
       console.error(err);
@@ -138,14 +153,15 @@ export default function UserManagement() {
     }
   };
 
-  // Edit User
+  // Edit (swap)
   const handleEdit = async (user) => {
     try {
       const ref = doc(db, user.role.toLowerCase() + "s", user.id);
       const snap = await getDoc(ref);
       if (snap.exists()) {
         const normalized = normalizeKeys(snap.data());
-        setEditModalUser({ id: user.id, role: user.role, ...normalized });
+        setViewUser(null);
+        setEditUser({ id: user.id, role: user.role, ...normalized });
       } else toast.error("User not found.");
     } catch (err) {
       console.error(err);
@@ -153,19 +169,22 @@ export default function UserManagement() {
     }
   };
 
-  // Save edits
   const saveUserEdits = async () => {
-    if (!editModalUser) return;
+    if (!editUser) return;
     try {
       setUpdating(true);
-      const { id, role, ...rest } = editModalUser;
+      const { id, role, ...rest } = editUser;
 
       const fieldsToUpdate = Object.fromEntries(
         Object.entries(rest).filter(
           ([key]) =>
-            !["created_at", "status", "temp_password", "personal_email", "classes"].includes(
-              key
-            )
+            ![
+              "created_at",
+              "status",
+              "temp_password",
+              "personal_email",
+              "classes",
+            ].includes(key)
         )
       );
 
@@ -174,7 +193,7 @@ export default function UserManagement() {
       await logActivity(`Edited ${role} account: ${rest.firstname || "User"}`, "Admin");
 
       toast.success("User updated successfully!");
-      setEditModalUser(null);
+      setEditUser(null);
       fetchAllAccounts();
     } catch (err) {
       console.error(err);
@@ -184,14 +203,12 @@ export default function UserManagement() {
     }
   };
 
-  // Delete User
   const handleDelete = async (user) => {
     if (!confirm(`Delete ${user.name}?`)) return;
     try {
       const ref = doc(db, user.role.toLowerCase() + "s", user.id);
       await deleteDoc(ref);
       await logActivity(`Deleted ${user.role}: ${user.name}`, "Admin");
-
       toast.success("User deleted successfully!");
       fetchAllAccounts();
     } catch (err) {
@@ -200,200 +217,162 @@ export default function UserManagement() {
     }
   };
 
-  // Filters + Search
+  const handleCreateStudent = async () => {
+    if (!addModalUser) return;
+    const { firstname, lastname, personal_email } = addModalUser;
+    if (!firstname || !lastname || !personal_email) {
+      toast.error("Firstname, Lastname, and Personal email are required.");
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const res = await fetch("http://localhost:3000/admin/add-student", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(addModalUser),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to create student.");
+      }
+      toast.success(`Student created: ${data.result?.schoolEmail || "Success"}`);
+      setAddModalUser(null);
+      await fetchAllAccounts();
+    } catch (err) {
+      console.error(err);
+      toast.error(`Failed to create student: ${err.message}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const filteredUsers = users
     .filter((u) => filter === "all" || u.role.toLowerCase() === filter)
     .filter((u) =>
       Object.values(u).join(" ").toLowerCase().includes(search.toLowerCase())
     );
 
-  const orderedFields = [
-    "school_email",
-    "firstname",
-    "middlename",
-    "lastname",
-    "gradelevel",
-    "section",
-    "guardianname",
-    "guardiancontact",
-  ];
+  const orderedFields = useMemo(
+    () => [
+      "school_email",
+      "firstname",
+      "middlename",
+      "lastname",
+      "gradelevel",
+      "section",
+      "guardianname",
+      "guardiancontact",
+    ],
+    []
+  );
+
+  const showingTable = !viewUser && !editUser;
 
   return (
     <AdminLayout title="User Management">
       <div className="bg-white shadow-md rounded-lg p-4">
-        {/* CSV Import */}
-        <div className="flex items-center gap-2 mb-4">
-          <input
-            type="file"
-            accept=".csv"
-            onChange={handleCsvChange}
-            className="border border-gray-400 rounded px-2 py-1 text-gray-800 bg-gray-100 w-60"
-          />
-          <button
-            onClick={handleImportCsv}
-            disabled={importing}
-            className="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700 disabled:opacity-50"
-          >
-            {importing ? "Importing..." : "Import CSV"}
-          </button>
-        </div>
+        {/* Top bar (hidden while viewing or editing) */}
+        {showingTable && (
+          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <CSVImport
+              importing={importing}
+              onFileChange={handleCsvChange}
+              onImport={handleImportCsv}
+            />
+            <button
+              onClick={() => setAddModalUser({ ...defaultNewStudent })}
+              className="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700"
+            >
+              Add Student
+            </button>
+          </div>
+        )}
 
-        {/* Filters + Search */}
-        <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
-          <div className="flex gap-2">
-            {["all", "student", "teacher"].map((t) => (
+        {/* Breadcrumb / Back bar for view or edit */}
+        {(viewUser || editUser) && (
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => {
+                setViewUser(null);
+                setEditUser(null);
+              }}
+              className="text-sm px-3 py-1 rounded bg-blue-500 hover:bg-blue-400 font-medium"
+            >
+              ← Back to Users
+            </button>
+            <div className="text-sm text-gray-500">
+              {editUser
+                ? `Editing ${editUser.role}`
+                : `Viewing ${viewUser.role}`}
+            </div>
+          </div>
+        )}
+
+        {/* Filters hidden during view/edit */}
+        {showingTable && (
+          <FiltersSearch
+            filter={filter}
+            setFilter={setFilter}
+            search={search}
+            setSearch={setSearch}
+          />
+        )}
+
+        {/* Main swap area */}
+        {showingTable && (
+          <UsersTable
+            loading={loading}
+            users={filteredUsers}
+            onView={handleView}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
+        )}
+
+        {viewUser && !editUser && (
+          <div className="space-y-4">
+            <ViewUserModal
+              user={viewUser}
+              fields={orderedFields}
+              onClose={() => setViewUser(null)}
+              swap
+            />
+            {/* Optional inline edit button */}
+            <div className="flex justify-end">
               <button
-                key={t}
-                onClick={() => setFilter(t)}
-                className={`px-4 py-1 rounded ${
-                  filter === t
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-800"
-                }`}
+                onClick={() => handleEdit(viewUser)}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
               >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+                Edit This User
               </button>
-            ))}
+            </div>
           </div>
-          <input
-            type="text"
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-1 text-gray-800"
-          />
-        </div>
+        )}
 
-        {/* Table */}
-        {loading ? (
-          <p className="text-gray-500">Loading users...</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse rounded-lg overflow-hidden">
-              <thead>
-                <tr className="bg-blue-50 text-left text-gray-700">
-                  <th className="px-4 py-2 text-sm font-semibold">Name</th>
-                  <th className="px-4 py-2 text-sm font-semibold">Email</th>
-                  <th className="px-4 py-2 text-sm font-semibold">Role</th>
-                  <th className="px-4 py-2 text-sm font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUsers.length === 0 ? (
-                  <tr>
-                    <td colSpan="4" className="px-6 py-3 text-center text-gray-500">
-                      No records found
-                    </td>
-                  </tr>
-                ) : (
-                  filteredUsers.map((u, idx) => (
-                    <tr
-                      key={u.id}
-                      className={`${
-                        idx % 2 === 0 ? "bg-white" : "bg-gray-50"
-                      } hover:bg-blue-50`}
-                    >
-                      <td className="px-4 py-2 text-sm text-gray-800">{u.name}</td>
-                      <td className="px-4 py-2 text-sm text-gray-800">{u.email}</td>
-                      <td className="px-4 py-2 text-sm text-gray-800">{u.role}</td>
-                      <td className="px-4 py-2 text-sm flex gap-3 text-gray-800">
-                        <button onClick={() => handleView(u)} className="text-blue-600 hover:underline">
-                          View
-                        </button>
-                        <button onClick={() => handleEdit(u)} className="text-green-600 hover:underline">
-                          Edit
-                        </button>
-                        <button onClick={() => handleDelete(u)} className="text-red-600 hover:underline">
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+        {editUser && (
+          <EditUserModal
+            user={editUser}
+            fields={orderedFields}
+            updating={updating}
+            onChange={setEditUser}
+            onSave={saveUserEdits}
+            onCancel={() => setEditUser(null)}
+            swap
+            title={`Edit ${editUser.role}`}
+          />
         )}
       </div>
 
-      {/* View Modal */}
-      {viewModalUser && (
-        <div className="fixed inset-0 flex items-center justify-center z-50">
-          <div className="absolute inset-0 backdrop-blur-sm"></div>
-          <div className="relative bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-2xl p-6 w-full max-w-md z-10">
-            <h2 className="text-2xl font-bold mb-4 text-blue-700 border-b pb-2">
-              User Details
-            </h2>
-            <div className="space-y-3 text-gray-800 max-h-80 overflow-y-auto pr-2">
-              {orderedFields
-                .filter((key) => key in viewModalUser)
-                .map((key) => (
-                  <p key={key}>
-                    <span className="font-semibold text-gray-700">
-                      {key.replace(/_/g, " ")}:
-                    </span>{" "}
-                    {viewModalUser[key] || ""}
-                  </p>
-                ))}
-            </div>
-            <div className="mt-6 flex justify-end">
-              <button
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl shadow-md"
-                onClick={() => setViewModalUser(null)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Modal */}
-      {editModalUser && (
-        <div className="fixed inset-0 flex items-center justify-center z-50">
-          <div className="absolute inset-0 backdrop-blur-sm"></div>
-          <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md z-10">
-            <h2 className="text-2xl font-bold mb-4 text-green-700 border-b pb-2">
-              Edit User
-            </h2>
-            <div className="space-y-3 text-gray-800 max-h-80 overflow-y-auto pr-2">
-              {orderedFields
-                .filter((key) => key in editModalUser)
-                .map((key) => (
-                  <input
-                    key={key}
-                    type="text"
-                    placeholder={key.replace(/_/g, " ")}
-                    value={editModalUser[key] || ""}
-                    onChange={(e) =>
-                      setEditModalUser({
-                        ...editModalUser,
-                        [key]: e.target.value,
-                      })
-                    }
-                    className="w-full border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-300"
-                  />
-                ))}
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold px-5 py-2 rounded-xl shadow-md"
-                onClick={() => setEditModalUser(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className={`bg-green-600 text-white px-5 py-2 rounded-xl shadow-md hover:bg-green-700 font-semibold ${
-                  updating ? "opacity-50 cursor-not-allowed" : ""
-                }`}
-                onClick={saveUserEdits}
-                disabled={updating}
-              >
-                {updating ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Add Student Modal (still overlay) */}
+      {addModalUser && (
+        <AddStudentModal
+          user={addModalUser}
+            onChange={setAddModalUser}
+          onSave={handleCreateStudent}
+          onCancel={() => setAddModalUser(null)}
+          creating={creating}
+        />
       )}
     </AdminLayout>
   );

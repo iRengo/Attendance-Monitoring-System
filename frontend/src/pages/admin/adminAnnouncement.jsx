@@ -25,6 +25,18 @@ export default function AdminAnnouncement() {
 
   const announcementRef = collection(db, "announcements");
 
+  const targetLabel = (value) => {
+    switch (value) {
+      case "students":
+        return "Students";
+      case "teachers":
+        return "Teachers";
+      case "all":
+      default:
+        return "All Users";
+    }
+  };
+
   // Fetch announcements from Firestore
   const fetchAnnouncements = async () => {
     const snapshot = await getDocs(announcementRef);
@@ -35,7 +47,11 @@ export default function AdminAnnouncement() {
 
     const updated = data.map((a) => ({
       ...a,
-      status: new Date(a.expiration) < new Date() ? "Expired" : "Active",
+      status:
+        a?.expiration && !Number.isNaN(new Date(a.expiration).getTime()) &&
+        new Date(a.expiration) < new Date()
+          ? "Expired"
+          : "Active",
     }));
 
     setAnnouncements(updated);
@@ -214,6 +230,8 @@ export default function AdminAnnouncement() {
               <tr>
                 <th className="py-3 px-4 text-sm font-semibold">Title</th>
                 <th className="py-3 px-4 text-sm font-semibold">Date</th>
+                <th className="py-3 px-4 text-sm font-semibold">Target</th>
+                <th className="py-3 px-4 text-sm font-semibold">Expiration</th>
                 <th className="py-3 px-4 text-sm font-semibold">Author</th>
                 <th className="py-3 px-4 text-sm font-semibold">Status</th>
                 <th className="py-3 px-4 text-sm font-semibold text-right">
@@ -224,7 +242,7 @@ export default function AdminAnnouncement() {
             <tbody>
               {announcements.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="text-center py-6 text-gray-500">
+                  <td colSpan="7" className="text-center py-6 text-gray-500">
                     No announcements yet.
                   </td>
                 </tr>
@@ -242,6 +260,12 @@ export default function AdminAnnouncement() {
                       {a.title}
                     </td>
                     <td className="py-3 px-4 text-gray-700">{a.date}</td>
+                    <td className="py-3 px-4 text-gray-700">
+                      {targetLabel(a.target)}
+                    </td>
+                    <td className="py-3 px-4 text-gray-700">
+                      {a.expiration || "-"}
+                    </td>
                     <td className="py-3 px-4 text-gray-700">{a.author}</td>
                     <td className="py-3 px-4">
                       <span
