@@ -9,7 +9,7 @@ export default function useClasses(teacherId) {
   const [classForm, setClassForm] = useState({
     id: null,
     subject: "",
-    room: "",
+    room: "",          // maps to roomNumber only
     section: "",
     gradeLevel: "",
     days: [],
@@ -29,7 +29,12 @@ export default function useClasses(teacherId) {
           params: { teacherId },
         });
         if (res.data.success) {
-          setClasses(res.data.classes);
+          const cleaned = (res.data.classes || []).map(cls => {
+            // Remove any lingering roomId field if backend hasn't fully pruned yet
+            const { roomId, ...rest } = cls;
+            return rest;
+          });
+          setClasses(cleaned);
           if (res.data.needsIndex) {
             console.warn("Firestore composite index missing for classes {teacherId, createdAt}.");
           }
@@ -81,7 +86,6 @@ export default function useClasses(teacherId) {
     const fullTime = `${startTime12} - ${endTime12}`;
     const daysString = classForm.days.join(", ");
 
-    // Name: subjectName section-gradeLevel (e.g., "checkcheck B-11")
     const computedName = `${classForm.subject} ${classForm.section}-${classForm.gradeLevel}`.trim();
 
     setLoading(true);
@@ -92,30 +96,25 @@ export default function useClasses(teacherId) {
           `http://localhost:3000/teacher/update-class/${classForm.id}`,
           {
             teacherId,
-            // required by backend controller validation
             subjectName: classForm.subject,
             roomNumber: classForm.room,
             section: classForm.section,
             gradeLevel: classForm.gradeLevel,
             days: daysString,
             time: fullTime,
-            // canonical fields (no "subject")
             name: computedName,
-            roomId: classForm.room,
           }
         );
 
         if (res.data.success) {
-          setClasses((prev) =>
-            prev.map((cls) =>
+          setClasses(prev =>
+            prev.map(cls =>
               cls.id === classForm.id
                 ? {
                     ...cls,
-                    // no "subject" field; keep subjectName
                     subjectName: classForm.subject,
                     name: computedName,
                     teacherId,
-                    roomId: classForm.room,
                     roomNumber: classForm.room,
                     section: classForm.section,
                     gradeLevel: classForm.gradeLevel,
@@ -136,27 +135,23 @@ export default function useClasses(teacherId) {
       } else {
         const res = await axios.post("http://localhost:3000/teacher/add-class", {
           teacherId,
-          // required by backend controller validation
           subjectName: classForm.subject,
           roomNumber: classForm.room,
           section: classForm.section,
           gradeLevel: classForm.gradeLevel,
           days: daysString,
           time: fullTime,
-          // canonical fields (no "subject")
           name: computedName,
-          roomId: classForm.room,
         });
 
         if (res.data.success) {
-          setClasses((prev) => [
+          setClasses(prev => [
             ...prev,
             {
               id: res.data.id,
               subjectName: classForm.subject,
               name: computedName,
               teacherId,
-              roomId: classForm.room,
               roomNumber: classForm.room,
               section: classForm.section,
               gradeLevel: classForm.gradeLevel,
@@ -212,7 +207,7 @@ export default function useClasses(teacherId) {
         `http://localhost:3000/teacher/delete-class/${classId}?teacherId=${teacherId}`
       );
       if (res.data.success) {
-        setClasses((prev) => prev.filter((cls) => cls.id !== classId));
+        setClasses(prev => prev.filter(cls => cls.id !== classId));
         await Swal.fire({
           icon: "success",
           title: "Deleted",
@@ -241,9 +236,8 @@ export default function useClasses(teacherId) {
 
     setClassForm({
       id: cls.id,
-      // Use subjectName only; do not use "subject"
       subject: cls.subjectName || "",
-      room: cls.roomNumber || cls.roomId || "",
+      room: cls.roomNumber || "",
       section: cls.section || "",
       gradeLevel: cls.gradeLevel || "",
       days: (cls.days || "").split(", ").filter(Boolean),

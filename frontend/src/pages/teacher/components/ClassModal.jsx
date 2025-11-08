@@ -1,6 +1,8 @@
 import React from "react";
 import { X } from "lucide-react";
 
+const SECTION_OPTIONS = ["BM1MA", "HU1MA", "HU2AA", "IC1MA", "IC2AA"];
+
 export default function ClassModal({
   showModal,
   setShowModal,
@@ -12,6 +14,13 @@ export default function ClassModal({
   isEditMode,
   loading,
 }) {
+  if (!showModal) return null;
+
+  const resolvedSectionOptions =
+    SECTION_OPTIONS.includes(classForm.section) || !classForm.section
+      ? SECTION_OPTIONS
+      : [classForm.section, ...SECTION_OPTIONS];
+
   return (
     <div className="fixed inset-0 flex items-center justify-center text-gray-800 bg-black/40 backdrop-blur-sm z-50">
       <div className="bg-white rounded-2xl shadow-xl w-11/12 max-w-md p-8 relative">
@@ -30,43 +39,60 @@ export default function ClassModal({
             type="text"
             placeholder="Subject"
             value={classForm.subject}
-            onChange={(e) => setClassForm({ ...classForm, subject: e.target.value })}
+            onChange={(e) =>
+              setClassForm({ ...classForm, subject: e.target.value })
+            }
             className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
           />
           <input
             type="text"
             placeholder="Room Number"
             value={classForm.room}
-            onChange={(e) => setClassForm({ ...classForm, room: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
-          />
-          <input
-            type="text"
-            placeholder="Section"
-            value={classForm.section}
-            onChange={(e) => setClassForm({ ...classForm, section: e.target.value })}
+            onChange={(e) =>
+              setClassForm({ ...classForm, room: e.target.value })
+            }
             className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
           />
 
           <select
-            value={classForm.gradeLevel}
-            onChange={(e) => setClassForm({ ...classForm, gradeLevel: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-[#3498db] outline-none"
+            value={classForm.section}
+            onChange={(e) =>
+              setClassForm({ ...classForm, section: e.target.value })
+            }
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none text-gray-700"
           >
-            <option value="">Select Grade Level</option>
-            <option value="11">Grade 11</option>
-            <option value="12">Grade 12</option>
+            <option value="">Select Section</option>
+            {resolvedSectionOptions.map((sec) => (
+              <option key={sec} value={sec}>
+                {sec}
+              </option>
+            ))}
           </select>
+
+            <select
+              value={classForm.gradeLevel}
+              onChange={(e) =>
+                setClassForm({ ...classForm, gradeLevel: e.target.value })
+              }
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-[#3498db] outline-none"
+            >
+              <option value="">Select Grade Level</option>
+              <option value="11">Grade 11</option>
+              <option value="12">Grade 12</option>
+            </select>
 
           <div className="relative">
             <button
               onClick={() => setShowDaysDropdown((prev) => !prev)}
               className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-left focus:ring-2 focus:ring-[#3498db] outline-none"
+              type="button"
             >
-              {classForm.days.length > 0 ? classForm.days.join(", ") : "Select Days"}
+              {classForm.days.length > 0
+                ? classForm.days.join(", ")
+                : "Select Days"}
             </button>
             {showDaysDropdown && (
-              <div className="absolute mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-sm z-50">
+              <div className="absolute mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-sm z-50 max-h-56 overflow-y-auto">
                 {[
                   "Monday",
                   "Tuesday",
@@ -85,7 +111,10 @@ export default function ClassModal({
                       checked={classForm.days.includes(day)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setClassForm({ ...classForm, days: [...classForm.days, day] });
+                          setClassForm({
+                            ...classForm,
+                            days: [...classForm.days, day],
+                          });
                         } else {
                           setClassForm({
                             ...classForm,
@@ -105,13 +134,17 @@ export default function ClassModal({
             <input
               type="time"
               value={classForm.startTime}
-              onChange={(e) => setClassForm({ ...classForm, startTime: e.target.value })}
+              onChange={(e) =>
+                setClassForm({ ...classForm, startTime: e.target.value })
+              }
               className="w-1/2 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
             />
             <input
               type="time"
               value={classForm.endTime}
-              onChange={(e) => setClassForm({ ...classForm, endTime: e.target.value })}
+              onChange={(e) =>
+                setClassForm({ ...classForm, endTime: e.target.value })
+              }
               className="w-1/2 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
             />
           </div>
@@ -119,9 +152,13 @@ export default function ClassModal({
           <button
             onClick={handleSaveClass}
             disabled={loading}
-            className="w-full bg-[#3498db] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#2f89ca] transition"
+            className="w-full bg-[#3498db] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#2f89ca] transition disabled:opacity-60"
           >
-            {loading ? "Saving..." : isEditMode ? "Update Class" : "Add Class"}
+            {loading
+              ? "Saving..."
+              : isEditMode
+              ? "Update Class"
+              : "Add Class"}
           </button>
         </div>
       </div>

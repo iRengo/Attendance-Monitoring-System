@@ -9,7 +9,12 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 export class TeacherService {
   private db = getFirestore();
 
-  private buildComputedName(subjectName?: string, section?: string, gradeLevel?: string, fallbackName?: string) {
+  private buildComputedName(
+    subjectName?: string,
+    section?: string,
+    gradeLevel?: string,
+    fallbackName?: string
+  ) {
     const sName = (subjectName || "").trim();
     const sec = (section || "").trim();
     const grade = (gradeLevel || "").toString().trim();
@@ -22,45 +27,86 @@ export class TeacherService {
 
   private buildClassDoc(data: any) {
     const subjectName = (data.subjectName ?? data.subject ?? "").trim();
-    const roomNumber = (data.roomNumber ?? data.roomId ?? "").trim();
+
+    // Transitional fallback: if roomNumber missing but legacy roomId exists, adopt roomId as roomNumber.
+    const legacyRoomId = (data.roomId ?? "").trim();
+    const roomNumberRaw = (data.roomNumber ?? "").trim();
+    const roomNumber = roomNumberRaw || legacyRoomId; // Only keep roomNumber.
+
     const section = (data.section ?? "").trim();
     const gradeLevel = (data.gradeLevel ?? "").toString().trim();
     const days = (data.days ?? "").trim();
     const time = (data.time ?? "").trim();
-    const roomId = (data.roomId ?? data.roomNumber ?? "").trim();
     const teacherId = data.teacherId;
 
-    const computedName = this.buildComputedName(subjectName, section, gradeLevel, data.name);
+    const computedName = this.buildComputedName(
+      subjectName,
+      section,
+      gradeLevel,
+      data.name
+    );
     const now = new Date().toISOString();
 
     return {
       name: computedName,
       subjectName,
       teacherId,
-      roomId,
+      // roomId removed permanently
+      roomNumber,
       section,
       gradeLevel,
       days,
       time,
-      roomNumber,
       createdAt: data.createdAt ?? now,
       updatedAt: now,
     };
   }
 
   async addClass(data: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = data;
-    if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel) {
-      throw new BadRequestException("All fields are required including grade level.");
+    const {
+      teacherId,
+      subjectName,
+      roomNumber,
+      roomId, // may come from legacy clients
+      section,
+      days,
+      time,
+      gradeLevel,
+    } = data;
+
+    // Validate after normalization fallback
+    const effectiveRoomNumber = (roomNumber || roomId || "").trim();
+
+    if (
+      !teacherId ||
+      !subjectName ||
+      !effectiveRoomNumber ||
+      !section ||
+      !days ||
+      !time ||
+      !gradeLevel
+    ) {
+      throw new BadRequestException(
+        "All fields are required including grade level."
+      );
     }
 
     const providedId: string | undefined = data.classId;
     const classesCol = this.db.collection("classes");
     const classRef = providedId ? classesCol.doc(providedId) : classesCol.doc();
 
-    const classDoc = this.buildClassDoc(data);
+    const classDoc = this.buildClassDoc({
+      ...data,
+      roomNumber: effectiveRoomNumber,
+    });
+
     await classRef.set(classDoc);
-    await classRef.update({ subject: FieldValue.delete() });
+
+    // Hard delete legacy field if client accidentally sent it
+    await classRef.update({
+      subject: FieldValue.delete(),
+      roomId: FieldValue.delete(),
+    });
 
     const teacherRef = this.db.collection("teachers").doc(teacherId);
     await teacherRef.set(
@@ -92,14 +138,19 @@ export class TeacherService {
     } catch (e: any) {
       const needsIndex =
         e?.code === 9 ||
-        (typeof e?.message === "string" && e.message.toLowerCase().includes("requires an index"));
+        (typeof e?.message === "string" &&
+          e.message.toLowerCase().includes("requires an index"));
 
       if (!needsIndex) throw e;
 
-      const snapNoOrder = await classesCol.where("teacherId", "==", teacherId).get();
+      const snapNoOrder = await classesCol
+        .where("teacherId", "==", teacherId)
+        .get();
       const classes = snapNoOrder.docs
         .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        .sort((a: any, b: any) =>
+          (b.createdAt || "").localeCompare(a.createdAt || "")
+        );
 
       return { success: true, classes, needsIndex: true };
     }
@@ -112,10 +163,14 @@ export class TeacherService {
 
     const cls = docSnap.data();
     if (cls?.teacherId !== teacherId) {
-      throw new BadRequestException("You do not have permission to update this class.");
+      throw new BadRequestException(
+        "You do not have permission to update this class."
+      );
     }
 
     const oldSubject = (cls?.subjectName || "").trim();
+
+    // Build updated doc (will omit roomId)
     const updated = this.buildClassDoc({ ...cls, ...data });
 
     await classRef.update({
@@ -125,6 +180,7 @@ export class TeacherService {
       schedule: FieldValue.delete(),
       startTime: FieldValue.delete(),
       endTime: FieldValue.delete(),
+      roomId: FieldValue.delete(), // ensure legacy field removed
     });
 
     const teacherRef = this.db.collection("teachers").doc(teacherId);
@@ -149,7 +205,7 @@ export class TeacherService {
       }
     }
 
-    // Legacy student class object sync
+    // Sync legacy embedded student class objects: remove roomId
     const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
@@ -157,9 +213,14 @@ export class TeacherService {
       const studentSnap = await studentRef.get();
       if (!studentSnap.exists) continue;
       const studentData = studentSnap.data() as any;
-      if (Array.isArray(studentData.classes) && studentData.classes.length) {
-        const allStrings = studentData.classes.every((c: any) => typeof c === "string");
-        if (allStrings) continue;
+      if (
+        Array.isArray(studentData.classes) &&
+        studentData.classes.length
+      ) {
+        const allStrings = studentData.classes.every(
+          (c: any) => typeof c === "string"
+        );
+        if (allStrings) continue; // string IDs only, skip
         const updatedClasses = studentData.classes.map((c: any) =>
           c.id === classId
             ? {
@@ -168,7 +229,7 @@ export class TeacherService {
                 name: updated.name,
                 subjectName: updated.subjectName,
                 teacherId: updated.teacherId,
-                roomId: updated.roomId,
+                // roomId removed
                 roomNumber: updated.roomNumber,
                 section: updated.section,
                 gradeLevel: updated.gradeLevel,
@@ -190,7 +251,9 @@ export class TeacherService {
     if (!docSnap.exists) throw new NotFoundException("Class not found");
     const cls = docSnap.data();
     if (cls?.teacherId !== teacherId) {
-      throw new BadRequestException("You do not have permission to delete this class.");
+      throw new BadRequestException(
+        "You do not have permission to delete this class."
+      );
     }
 
     const subjectToMaybeRemove = (cls?.subjectName || "").trim();
@@ -202,13 +265,20 @@ export class TeacherService {
       const studentSnap = await studentRef.get();
       if (!studentSnap.exists) continue;
       const studentData = studentSnap.data() as any;
-      if (Array.isArray(studentData.classes) && studentData.classes.length) {
-        const allStrings = studentData.classes.every((c: any) => typeof c === "string");
+      if (
+        Array.isArray(studentData.classes) &&
+        studentData.classes.length
+      ) {
+        const allStrings = studentData.classes.every(
+          (c: any) => typeof c === "string"
+        );
         if (allStrings) {
           await studentRef.update({ classes: FieldValue.arrayRemove(classId) });
         } else {
-          const updatedClasses = studentData.classes.filter((c: any) => c.id !== classId);
-          await studentRef.update({ classes: updatedClasses });
+          const updatedClasses = studentData.classes.filter(
+            (c: any) => c.id !== classId
+          );
+            await studentRef.update({ classes: updatedClasses });
         }
       }
     }
@@ -234,7 +304,9 @@ export class TeacherService {
         .where("subjectName", "==", subjectToMaybeRemove)
         .get();
       if (othersSnap.empty) {
-        await teacherRef.update({ subjects: FieldValue.arrayRemove(subjectToMaybeRemove) });
+        await teacherRef.update({
+          subjects: FieldValue.arrayRemove(subjectToMaybeRemove),
+        });
       }
     }
 
@@ -242,13 +314,24 @@ export class TeacherService {
   }
 
   async addPost(data: any) {
-    const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = data;
-    if (!teacherId || !classId) throw new BadRequestException("Missing teacherId or classId");
+    const {
+      teacherId,
+      classId,
+      content,
+      fileUrl,
+      imageUrl,
+      fileName,
+      fileType,
+    } = data;
+    if (!teacherId || !classId)
+      throw new BadRequestException("Missing teacherId or classId");
     const classRef = this.db.collection("classes").doc(classId);
     const classSnap = await classRef.get();
     if (!classSnap.exists) throw new NotFoundException("Class not found");
     if (classSnap.data()?.teacherId !== teacherId) {
-      throw new BadRequestException("You do not have permission to post to this class.");
+      throw new BadRequestException(
+        "You do not have permission to post to this class."
+      );
     }
     if (!content && !fileUrl && !imageUrl) {
       throw new BadRequestException("Post must include text, image, or file.");
@@ -272,10 +355,18 @@ export class TeacherService {
     const classSnap = await classRef.get();
     if (!classSnap.exists) throw new NotFoundException("Class not found");
     if (classSnap.data()?.teacherId !== teacherId) {
-      throw new BadRequestException("You do not have permission to view posts for this class.");
+      throw new BadRequestException(
+        "You do not have permission to view posts for this class."
+      );
     }
-    const postsSnapshot = await classRef.collection("posts").orderBy("timestamp", "desc").get();
-    const posts = postsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const postsSnapshot = await classRef
+      .collection("posts")
+      .orderBy("timestamp", "desc")
+      .get();
+    const posts = postsSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
     return { success: true, posts };
   }
 
@@ -284,25 +375,46 @@ export class TeacherService {
     const classSnap = await classRef.get();
     if (!classSnap.exists) throw new NotFoundException("Class not found");
     if (classSnap.data()?.teacherId !== teacherId) {
-      throw new BadRequestException("You do not have permission to view students for this class.");
+      throw new BadRequestException(
+        "You do not have permission to view students for this class."
+      );
     }
     const studentsSnapshot = await classRef.collection("students").get();
     if (studentsSnapshot.empty)
-      return { success: true, students: [], message: "No students have joined yet." };
+      return {
+        success: true,
+        students: [],
+        message: "No students have joined yet.",
+      };
 
     const students = await Promise.all(
       studentsSnapshot.docs.map(async (doc) => {
         const studentId = doc.id;
-        const studentDoc = await this.db.collection("students").doc(studentId).get();
+        const studentDoc = await this.db
+          .collection("students")
+          .doc(studentId)
+          .get();
         const studentData = studentDoc.exists ? studentDoc.data() : {};
         return {
           id: studentId,
           joinedAt: doc.data().joinedAt,
-            firstName: (studentData as any)?.firstName || (studentData as any)?.firstname || null,
-            middleName: (studentData as any)?.middleName || (studentData as any)?.middlename || null,
-            lastName: (studentData as any)?.lastName || (studentData as any)?.lastname || null,
-            email: (studentData as any)?.school_email || (studentData as any)?.personal_email || null,
-            status: (studentData as any)?.status || null,
+          firstName:
+            (studentData as any)?.firstName ||
+            (studentData as any)?.firstname ||
+            null,
+          middleName:
+            (studentData as any)?.middleName ||
+            (studentData as any)?.middlename ||
+            null,
+          lastName:
+            (studentData as any)?.lastName ||
+            (studentData as any)?.lastname ||
+            null,
+          email:
+            (studentData as any)?.school_email ||
+            (studentData as any)?.personal_email ||
+            null,
+          status: (studentData as any)?.status || null,
         };
       })
     );
@@ -310,13 +422,17 @@ export class TeacherService {
   }
 
   async getTeacherStats(teacherId: string) {
-    const classesSnapshot = await this.db.collection("classes").where("teacherId", "==", teacherId).get();
+    const classesSnapshot = await this.db
+      .collection("classes")
+      .where("teacherId", "==", teacherId)
+      .get();
     if (classesSnapshot.empty)
       return { success: true, totalClasses: 0, totalStudents: 0, totalSubjects: 0 };
     const subjectSet = new Set<string>();
     for (const classDoc of classesSnapshot.docs) {
       const classData: any = classDoc.data();
-      if (classData.subjectName) subjectSet.add((classData.subjectName as string).trim());
+      if (classData.subjectName)
+        subjectSet.add((classData.subjectName as string).trim());
     }
     return {
       success: true,
@@ -333,13 +449,15 @@ export class TeacherService {
       { profilePicUrl: imageUrl, updatedAt: new Date().toISOString() },
       { merge: true }
     );
-    return { success: true, message: "Profile picture uploaded successfully", imageUrl };
+    return {
+      success: true,
+      message: "Profile picture uploaded successfully",
+      imageUrl,
+    };
   }
 
-  // NEW: Attendance sessions fetch
   async getAttendanceSessions(teacherId: string, classId?: string) {
     if (!teacherId) throw new BadRequestException("teacherId is required");
-
     let queryRef: FirebaseFirestore.Query = this.db
       .collection("attendance_sessions")
       .where("teacherId", "==", teacherId);

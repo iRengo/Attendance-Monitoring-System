@@ -21,9 +21,29 @@ export class TeacherController {
 
   @Post("add-class")
   async addClass(@Body() body: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
-    if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel)
-      throw new BadRequestException("All fields are required including grade level.");
+    const {
+      teacherId,
+      subjectName,
+      roomNumber,
+      roomId, // legacy optional
+      section,
+      days,
+      time,
+      gradeLevel,
+    } = body;
+    const effectiveRoom = (roomNumber || roomId || "").trim();
+    if (
+      !teacherId ||
+      !subjectName ||
+      !effectiveRoom ||
+      !section ||
+      !days ||
+      !time ||
+      !gradeLevel
+    )
+      throw new BadRequestException(
+        "All fields are required including grade level."
+      );
     return await this.teacherService.addClass(body);
   }
 
@@ -35,10 +55,33 @@ export class TeacherController {
 
   @Put("update-class/:classId")
   async updateClass(@Param("classId") classId: string, @Body() body: any) {
-    const { teacherId, subjectName, roomNumber, section, days, time, gradeLevel } = body;
-    if (!teacherId || !subjectName || !roomNumber || !section || !days || !time || !gradeLevel)
-      throw new BadRequestException("All fields are required including grade level.");
-    return await this.teacherService.updateClass(teacherId, classId, body);
+    const {
+      teacherId,
+      subjectName,
+      roomNumber,
+      roomId,
+      section,
+      days,
+      time,
+      gradeLevel,
+    } = body;
+    const effectiveRoom = (roomNumber || roomId || "").trim();
+    if (
+      !teacherId ||
+      !subjectName ||
+      !effectiveRoom ||
+      !section ||
+      !days ||
+      !time ||
+      !gradeLevel
+    )
+      throw new BadRequestException(
+        "All fields are required including grade level."
+      );
+    return await this.teacherService.updateClass(teacherId, classId, {
+      ...body,
+      roomNumber: effectiveRoom,
+    });
   }
 
   @Delete("delete-class/:classId")
@@ -52,19 +95,11 @@ export class TeacherController {
 
   @Post("add-post")
   async addPost(@Body() body: any) {
-    const { teacherId, classId, content, fileUrl, imageUrl, fileName, fileType } = body;
+    const { teacherId, classId, content, fileUrl, imageUrl } = body;
     if (!teacherId || !classId || (!content && !fileUrl && !imageUrl)) {
       throw new BadRequestException("Post must include text, image, or file.");
     }
-    return await this.teacherService.addPost({
-      teacherId,
-      classId,
-      content,
-      fileUrl,
-      imageUrl,
-      fileName,
-      fileType,
-    });
+    return await this.teacherService.addPost(body);
   }
 
   @Get("class-posts")
@@ -97,13 +132,15 @@ export class TeacherController {
   @UseInterceptors(FileInterceptor("file", { storage }))
   async uploadProfilePicture(
     @Param("teacherId") teacherId: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File
   ) {
     if (!file) throw new BadRequestException("No file uploaded");
-    return await this.teacherService.saveProfilePicture(teacherId, file.path);
+    return await this.teacherService.saveProfilePicture(
+      teacherId,
+      file.path
+    );
   }
 
-  // NEW: Attendance sessions endpoint
   @Get("attendance-sessions")
   async getAttendanceSessions(
     @Query("teacherId") teacherId: string,
