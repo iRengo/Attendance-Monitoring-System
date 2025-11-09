@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Home,
   CalendarCheck,
@@ -15,12 +15,30 @@ import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 
+/**
+ * TeacherLayout
+ * Restores original design while adding a temp password banner.
+ * Changes from previous damaged version:
+ *  - Removed manual inline margin-left adjustments for banner and content.
+ *  - Banner is rendered INSIDE the scrollable content area beneath the fixed top navbar.
+ *  - No layout shift: sidebar width logic stays the same, top navbar positioning untouched.
+ *  - Uses padding-top via mt-16 (height of navbar) for content; banner sits at top of content stack.
+ */
 export default function TeacherLayout({ title, children }) {
   const location = useLocation();
   const navigate = useNavigate();
+
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [teacher, setTeacher] = useState(null);
+
+  // Derived: show banner if temp_password is a non-empty string
+  const isTempPassword = useMemo(
+    () =>
+      typeof teacher?.temp_password === "string" &&
+      teacher.temp_password.trim() !== "",
+    [teacher]
+  );
 
   const navItems = [
     { name: "Dashboard", path: "/teacher/dashboard", icon: <Home size={20} /> },
@@ -31,17 +49,20 @@ export default function TeacherLayout({ title, children }) {
     { name: "Settings", path: "/teacher/settings", icon: <Settings size={20} /> },
   ];
 
-  const pathnames = location.pathname.split("/").filter((x) => x);
+  const pathnames = location.pathname.split("/").filter(Boolean);
 
-  // ✅ Fetch current teacher profile
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      if (user) {
+      if (!user) {
+        setTeacher(null);
+        return;
+      }
+      try {
         const teacherRef = doc(db, "teachers", user.uid);
-        const teacherSnap = await getDoc(teacherRef);
-        if (teacherSnap.exists()) {
-          setTeacher(teacherSnap.data());
-        }
+        const snap = await getDoc(teacherRef);
+        if (snap.exists()) setTeacher(snap.data());
+      } catch (e) {
+        console.error("Failed to load teacher data:", e);
       }
     });
     return () => unsubscribe();
@@ -56,9 +77,8 @@ export default function TeacherLayout({ title, children }) {
     } catch (err) {
       console.error("Logout error:", err);
     }
-  };  
+  };
 
-  // ✅ Helper: format name
   const getDisplayName = () => {
     if (!teacher) return "";
     const { firstname, middlename, lastname } = teacher;
@@ -90,7 +110,7 @@ export default function TeacherLayout({ title, children }) {
 
         <div
           className="px-2 py-3 text-xs uppercase tracking-wide text-gray-200 cursor-pointer"
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={() => setIsCollapsed((c) => !c)}
         >
           <div className="flex items-center gap-2 px-6 py-6">
             <Menu size={16} />
@@ -103,12 +123,11 @@ export default function TeacherLayout({ title, children }) {
             <Link
               key={item.name}
               to={item.path}
-              className={`flex items-center gap-3 pl-6 px-4 py-2 rounded-lg transition
-                ${
-                  location.pathname === item.path
-                    ? "bg-[#32487E] text-white"
-                    : "text-white hover:bg-[#32487E] hover:text-white"
-                }`}
+              className={`flex items-center gap-3 pl-6 px-4 py-2 rounded-lg transition ${
+                location.pathname === item.path
+                  ? "bg-[#32487E] text-white"
+                  : "text-white hover:bg-[#32487E] hover:text-white"
+              }`}
             >
               <span className="text-white">{item.icon}</span>
               {!isCollapsed && (
@@ -119,24 +138,24 @@ export default function TeacherLayout({ title, children }) {
         </nav>
       </div>
 
-      {/* Main content */}
+      {/* Main panel */}
       <div
         className={`flex-1 flex flex-col transition-all duration-300 ${
           isCollapsed ? "ml-26" : "ml-74"
         }`}
       >
-        {/* Top Navbar */}
+        {/* Top Navbar (fixed) */}
         <div
-          className={`fixed top-0 h-16 bg-white shadow flex justify-between items-center px-6 z-40 transition-all duration-300`}
+          className="fixed top-0 h-16 bg-white shadow flex justify-between items-center px-6 z-40 transition-all duration-300"
           style={{
             left: isCollapsed ? "6.5rem" : "18.5rem",
             right: 0,
           }}
         >
-          <h2 className="text-lg font-bold text-[#415CA0]">{title}</h2>
+          <h2 className="text-lg font-bold text-[#415CA0] truncate">{title}</h2>
 
           <div className="flex items-center gap-6">
-            {/* Notification Bell */}
+            {/* Notifications */}
             <div className="relative">
               <button
                 className="p-2 rounded-full hover:bg-gray-100 transition"
@@ -149,7 +168,7 @@ export default function TeacherLayout({ title, children }) {
               </span>
             </div>
 
-            {/* Profile Dropdown */}
+            {/* Profile dropdown */}
             <div className="relative">
               <div
                 className="flex items-center gap-4 cursor-pointer bg-white px-3 py-1 border hover:bg-[#F0F4FF] transition"
@@ -167,14 +186,17 @@ export default function TeacherLayout({ title, children }) {
                   </div>
                 )}
 
-                <div className="flex flex-col leading-tight">
-                  <span className="font-medium text-[#32487E]">
-                    {getDisplayName() || "Loading..."}
-                  </span>
-                  <span className="text-xs text-gray-500">Teacher</span>
-                </div>
-
-                <ChevronDown size={16} className="text-[#415CA0]" />
+                {!isCollapsed && (
+                  <>
+                    <div className="flex flex-col leading-tight">
+                      <span className="font-medium text-[#32487E]">
+                        {getDisplayName() || "Loading..."}
+                      </span>
+                      <span className="text-xs text-gray-500">Teacher</span>
+                    </div>
+                    <ChevronDown size={16} className="text-[#415CA0]" />
+                  </>
+                )}
               </div>
 
               {menuOpen && (
@@ -192,11 +214,22 @@ export default function TeacherLayout({ title, children }) {
           </div>
         </div>
 
-        {/* Breadcrumbs */}
-        <div className="flex-1 p-6 bg-gray-50 mt-16 overflow-y-auto">
+        {/* Scrollable content area with top spacing equal to navbar height */}
+        <div className="flex-1 overflow-y-auto bg-gray-50 mt-16 p-6">
+          {/* Temp password banner (inside content; no layout shift of navbar/sidebar) */}
+          {isTempPassword && (
+            <div className="mb-4 rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+              Your account is using a temporary password. Please update your password to secure your account.
+            </div>
+          )}
+
+          {/* Breadcrumbs */}
           <div className="w-full flex justify-end mb-4">
             <div className="text-sm text-gray-500 flex gap-1">
-              <span className="hover:underline text-[#415CA0] cursor-pointer">
+              <span
+                className="hover:underline text-[#415CA0] cursor-pointer"
+                onClick={() => navigate("/teacher/dashboard")}
+              >
                 Home
               </span>
               {pathnames.map((name, index) => {
@@ -218,6 +251,8 @@ export default function TeacherLayout({ title, children }) {
               })}
             </div>
           </div>
+
+          {/* Page children */}
           {children}
         </div>
       </div>

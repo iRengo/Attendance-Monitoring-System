@@ -8,7 +8,7 @@ import * as nodemailer from 'nodemailer';
 
 export type CsvImportResult = {
   schoolEmail: string;
-  status: 'Created' | 'Failed';
+  status: 'Created' | 'Existing' | 'Failed';
   type: 'students' | 'teachers';
   error?: string;
 };
@@ -16,6 +16,10 @@ export type CsvImportResult = {
 export type CsvImportResponse = {
   success: boolean;
   results: CsvImportResult[];
+  addedCount: number;
+  existingCount: number;
+  failedCount: number;
+  totalRows: number;
 };
 
 @Injectable()
@@ -23,7 +27,6 @@ export class AdminService {
   private db = getFirestore();
   private auth = getAuth();
 
-  // ✅ Log admin activity (auto-creates collection)
   private async logActivity(action: string, details: string) {
     try {
       await this.db.collection('recent_activities').add({
@@ -32,24 +35,20 @@ export class AdminService {
         actor: 'Admin',
         timestamp: new Date().toISOString(),
       });
-      console.log('✅ Logged:', action);
     } catch (error) {
-      console.error('❌ Failed to log activity:', error);
+      console.error('Failed to log activity:', error);
     }
   }
 
-  // ✅ Get latest 10 recent activities
   async getRecentActivities() {
     const snap = await this.db
       .collection('recent_activities')
       .orderBy('timestamp', 'desc')
       .limit(10)
       .get();
-
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   }
 
-  // ✅ Import CSV (students or teachers)
   async importCSV(file: Express.Multer.File): Promise<CsvImportResponse> {
     if (!file) throw new BadRequestException('No file uploaded');
 
@@ -67,10 +66,10 @@ export class AdminService {
         .pipe(csvParser())
         .on('data', (data) => {
           const normalized: any = {};
-          for (const key in data) {
-            const cleanKey = key.trim().toLowerCase().replace(/\s+/g, '_');
-            normalized[cleanKey] = data[key]?.trim();
-          }
+            for (const key in data) {
+              const cleanKey = key.trim().toLowerCase().replace(/\s+/g, '_');
+              normalized[cleanKey] = data[key]?.trim();
+            }
           rows.push(normalized);
         })
         .on('end', async () => {
@@ -83,6 +82,26 @@ export class AdminService {
 
               const schoolEmail = `${firstName}.${lastName}@aics.edu.ph`.toLowerCase();
               const tempPassword = this.generateRandomPassword();
+
+              // Check existing in Auth or Firestore before creating
+              let alreadyExists = false;
+              try {
+                // auth.getUserByEmail throws if not found
+                await this.auth.getUserByEmail(schoolEmail);
+                alreadyExists = true;
+              } catch (_) {
+                alreadyExists = false;
+              }
+
+              if (alreadyExists) {
+                // Mark as Existing (do not attempt createUser)
+                responses.push({
+                  schoolEmail,
+                  status: 'Existing',
+                  type: collectionName,
+                });
+                continue;
+              }
 
               try {
                 const user = await this.auth.createUser({
@@ -99,37 +118,58 @@ export class AdminService {
                   status: 'approved',
                 });
 
-                // ✅ Send credentials to the personal email; don't fail the whole import if email fails
                 try {
                   await this.sendCredentials(personalEmail, schoolEmail, tempPassword);
-                  console.log(`📧 Credentials email sent to ${personalEmail}`);
                 } catch (emailErr) {
-                  console.error(`❌ Failed to send credentials to ${personalEmail}:`, emailErr);
+                  console.error(`Failed to send credentials to ${personalEmail}:`, emailErr);
                   await this.logActivity(
                     'Email Send Failed',
-                    `To: ${personalEmail} (${schoolEmail}) — ${(emailErr as Error).message}`
+                    `To: ${personalEmail} (${schoolEmail}) — ${(emailErr as Error).message}`,
                   );
                 }
 
                 responses.push({ schoolEmail, status: 'Created', type: collectionName });
-              } catch (err) {
-                responses.push({
-                  schoolEmail,
-                  status: 'Failed',
-                  type: collectionName,
-                  error: (err as Error).message,
-                });
+              } catch (err: any) {
+                // If error is due to existing email (race condition), mark as Existing
+                const msg = err?.message || '';
+                if (
+                  msg.includes('email-already-exists') ||
+                  msg.toLowerCase().includes('already exists')
+                ) {
+                  responses.push({
+                    schoolEmail,
+                    status: 'Existing',
+                    type: collectionName,
+                  });
+                } else {
+                  responses.push({
+                    schoolEmail,
+                    status: 'Failed',
+                    type: collectionName,
+                    error: msg,
+                  });
+                }
               }
             }
 
-            // Log a helpful summary to recent_activities
-            const createdCount = responses.filter((r) => r.status === 'Created').length;
+            const addedCount = responses.filter((r) => r.status === 'Created').length;
+            const existingCount = responses.filter((r) => r.status === 'Existing').length;
+            const failedCount = responses.filter((r) => r.status === 'Failed').length;
+            const totalRows = rows.length;
+
             await this.logActivity(
               `Imported ${collectionName}`,
-              `Processed ${rows.length} rows — ${createdCount} created.`
+              `Rows: ${totalRows} — Created: ${addedCount}, Existing: ${existingCount}, Failed: ${failedCount}`,
             );
 
-            resolve({ success: true, results: responses });
+            resolve({
+              success: true,
+              results: responses,
+              addedCount,
+              existingCount,
+              failedCount,
+              totalRows,
+            });
           } catch (err) {
             reject(err);
           } finally {
@@ -140,24 +180,20 @@ export class AdminService {
     });
   }
 
-  // ✅ Add a single student (manual), mirrors CSV logic
   async addStudent(data: any) {
-    // Normalize keys to snake_case to be consistent with CSV import
     const normalized: Record<string, any> = {};
     for (const key in data) {
       const cleanKey = key.trim().toLowerCase().replace(/[\s-]+/g, '_');
       const value = data[key];
-      normalized[cleanKey] =
-        typeof value === 'string' ? value.trim() : value;
+      normalized[cleanKey] = typeof value === 'string' ? value.trim() : value;
     }
 
     const firstname = normalized['firstname'];
     const lastname = normalized['lastname'];
     const personalEmail = normalized['personal_email'] || normalized['email'];
-
     if (!firstname || !lastname || !personalEmail) {
       throw new BadRequestException(
-        'Missing required fields: firstname, lastname, personal_email'
+        'Missing required fields: firstname, lastname, personal_email',
       );
     }
 
@@ -171,7 +207,6 @@ export class AdminService {
         displayName: `${firstname} ${lastname}`,
       });
 
-      // Write Firestore doc with the same shape as CSV import
       await this.db.collection('students').doc(user.uid).set({
         ...normalized,
         school_email: schoolEmail,
@@ -180,99 +215,76 @@ export class AdminService {
         status: 'approved',
       });
 
-      // ✅ Send credentials to personal email
       try {
         await this.sendCredentials(personalEmail, schoolEmail, tempPassword);
-        console.log(`📧 Credentials email sent to ${personalEmail}`);
       } catch (emailErr) {
-        console.error(`❌ Failed to send credentials to ${personalEmail}:`, emailErr);
+        console.error(`Failed to send credentials to ${personalEmail}:`, emailErr);
         await this.logActivity(
           'Email Send Failed',
-          `To: ${personalEmail} (${schoolEmail}) — ${(emailErr as Error).message}`
+          `To: ${personalEmail} (${schoolEmail}) — ${(emailErr as Error).message}`,
         );
       }
 
       await this.logActivity(
         'Added Student',
-        `Created student ${firstname} ${lastname} (${schoolEmail})`
+        `Created student ${firstname} ${lastname} (${schoolEmail})`,
       );
 
-      return {
-        uid: user.uid,
-        schoolEmail,
-        tempPassword,
-      };
-    } catch (err) {
+      return { uid: user.uid, schoolEmail, tempPassword };
+    } catch (err: any) {
       await this.logActivity(
         'Add Student Failed',
-        `Failed to create ${firstname} ${lastname}: ${(err as Error).message}`
+        `Failed to create ${firstname} ${lastname}: ${err.message}`,
       );
-      throw new BadRequestException((err as Error).message);
+      throw new BadRequestException(err.message);
     }
   }
 
-  // ✅ Edit user
   async editUser(role: 'student' | 'teacher', userId: string, updates: any) {
     const collection = role === 'student' ? 'students' : 'teachers';
     const docRef = this.db.collection(collection).doc(userId);
-
-    // try to get a readable name for logging
     const snap = await docRef.get();
     const beforeData = snap.exists ? snap.data() : null;
     const name =
       (beforeData?.firstname || beforeData?.firstName || beforeData?.displayName || '') +
       (beforeData?.lastname ? ' ' + beforeData?.lastname : '');
 
-    await docRef.update({
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    });
+    await docRef.update({ ...updates, updatedAt: new Date().toISOString() });
 
     const details = `Updated ${role} ${name || userId}: ${JSON.stringify(updates)}`;
     await this.logActivity(`Edited ${role}`, details);
-
     return { success: true };
   }
 
-  // ✅ Delete user
   async deleteUser(role: 'student' | 'teacher', userId: string) {
     const collection = role === 'student' ? 'students' : 'teachers';
     const docRef = this.db.collection(collection).doc(userId);
-
-    // Fetch for name
     const snap = await docRef.get();
     const data = snap.exists ? snap.data() : null;
     const name =
       data ? `${data.firstname || data.firstName || ''} ${data.lastname || ''}`.trim() : userId;
 
     await docRef.delete();
-
     await this.logActivity(
       `Deleted ${role}`,
-      `Deleted ${role} ${name || userId} (ID: ${userId})`
+      `Deleted ${role} ${name || userId} (ID: ${userId})`,
     );
     return { success: true };
   }
 
-  // ✅ Toggle maintenance (use your system_settings/maintenance_mode)
   async toggleMaintenance(enabled: boolean) {
     await this.db
       .collection('system_settings')
       .doc('maintenance_mode')
-      .set(
-        { enabled, updatedAt: new Date().toISOString() },
-        { merge: true }
-      );
+      .set({ enabled, updatedAt: new Date().toISOString() }, { merge: true });
 
     await this.logActivity(
       `Toggled Maintenance`,
-      `Maintenance mode set to ${enabled ? 'ON' : 'OFF'}`
+      `Maintenance mode set to ${enabled ? 'ON' : 'OFF'}`,
     );
-
     return { success: true };
   }
 
-  // ✅ Post announcement (uses your announcements collection format)
   async postAnnouncement(message: string, title = '', target = 'all') {
     const announcementsRef = this.db.collection('announcements');
     const createdAtISO = new Date().toISOString();
@@ -290,27 +302,23 @@ export class AdminService {
 
     await this.logActivity(
       'Posted Announcement',
-      `${title ? title + ': ' : ''}${message}`
+      `${title ? title + ': ' : ''}${message}`,
     );
     return { success: true };
   }
 
-  // Helper: generate random password
   private generateRandomPassword(length = 10): string {
     const chars =
       'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     return Array.from({ length }, () =>
-      chars[Math.floor(Math.random() * chars.length)]
+      chars[Math.floor(Math.random() * chars.length)],
     ).join('');
   }
 
-  // Helper: send email credentials to personal email (Gmail SMTP)
   private async sendCredentials(toEmail: string, schoolEmail: string, password: string) {
     const user = process.env.SYSTEM_EMAIL;
-    // Strip spaces from app password; Gmail app passwords are 16 chars without spaces
     const rawPass = process.env.SYSTEM_EMAIL_PASSWORD || '';
     const pass = rawPass.replace(/\s+/g, '');
-
     if (!user || !pass) {
       throw new Error('SYSTEM_EMAIL or SYSTEM_EMAIL_PASSWORD is not set');
     }
@@ -320,11 +328,8 @@ export class AdminService {
       port: 465,
       secure: true,
       auth: { user, pass },
-      logger: true, // logs to console
-      debug: true,  // enable SMTP traffic logs
     });
 
-    // Optional but helps catch auth/connect issues early
     await transporter.verify();
 
     const subject = 'Your School Account Credentials';
@@ -337,7 +342,6 @@ export class AdminService {
           <li><strong>Temporary Password:</strong> ${password}</li>
         </ul>
         <p>Please change your password after first login.</p>
-        <p>If you did not expect this email, please contact support.</p>
       </div>
     `;
 
@@ -351,19 +355,13 @@ export class AdminService {
     });
   }
 
-  // ✅ Upload and save admin profile picture
   async saveProfilePicture(adminId: string, imageUrl: string) {
     if (!imageUrl) throw new BadRequestException('No image URL provided');
-
     const adminRef = this.db.collection('admins').doc(adminId);
     await adminRef.set(
-      {
-        profilePicUrl: imageUrl,
-        updatedAt: new Date().toISOString(),
-      },
+      { profilePicUrl: imageUrl, updatedAt: new Date().toISOString() },
       { merge: true },
     );
-
     try {
       await this.db.collection('recent_activities').add({
         action: 'Uploaded Admin Profile Picture',
@@ -374,11 +372,6 @@ export class AdminService {
     } catch (err) {
       console.error('Failed to log admin profile pic upload activity:', err);
     }
-
-    return {
-      success: true,
-      message: 'Profile picture uploaded successfully',
-      imageUrl,
-    };
+    return { success: true, message: 'Profile picture uploaded successfully', imageUrl };
   }
 }

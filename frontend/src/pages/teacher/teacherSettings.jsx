@@ -6,15 +6,14 @@ import AccountTab from "./components/AccountTab";
 import ProfileTab from "./components/ProfileTab";
 
 /**
- * Concise TeacherSettings page.
- * All logic moved into useTeacherSettings hook and UI split into small components.
- * Behavior, endpoints and UI/classes are unchanged.
+ * TeacherSettings with temp password banner based ONLY on temp_password string.
  */
 export default function TeacherSettings() {
   const props = useTeacherSettings();
 
   return (
     <TeacherLayout title="Settings">
+
       <SettingsTabs activeTab={props.activeTab} setActiveTab={props.setActiveTab} />
 
       {props.activeTab === "account" && (
@@ -35,7 +34,7 @@ export default function TeacherSettings() {
         <ProfileTab
           teacherData={props.teacherData}
           uploading={props.uploading}
-          handleProfilePicChange={props.handleProfilePicChange}
+          onCaptureFromCamera={props.saveCapturedPhotoFromDataURL}
         />
       )}
     </TeacherLayout>

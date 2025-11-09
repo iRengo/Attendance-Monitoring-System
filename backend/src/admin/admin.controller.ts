@@ -18,7 +18,6 @@ import { diskStorage } from 'multer';
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  // ✅ Import CSV (students or teachers)
   @Post('import-csv')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -37,11 +36,26 @@ export class AdminController {
       throw new BadRequestException('Only CSV files are allowed!');
     }
 
-    const result = await this.adminService.importCSV(file);
-    return { success: true, results: result };
+    const {
+      success,
+      results,
+      addedCount,
+      existingCount,
+      failedCount,
+      totalRows,
+    } = await this.adminService.importCSV(file);
+
+    // Return expanded metrics (frontend relies on these counts)
+    return {
+      success,
+      addedCount,
+      existingCount,
+      failedCount,
+      totalRows,
+      results,
+    };
   }
 
-  // ✅ Add a single student (manual)
   @Post('add-student')
   async addStudent(
     @Body()
@@ -66,7 +80,6 @@ export class AdminController {
     return { success: true, result };
   }
 
-  // ✅ Toggle maintenance mode
   @Post('toggle-maintenance')
   async toggleMaintenance(@Body() body: { enabled: boolean }) {
     const { enabled } = body;
@@ -77,7 +90,6 @@ export class AdminController {
     return { success: true, result };
   }
 
-  // ✅ Post announcement
   @Post('announcement')
   async postAnnouncement(@Body() body: { message: string; title?: string; target?: string }) {
     if (!body.message) throw new BadRequestException('Missing announcement text');
@@ -89,7 +101,6 @@ export class AdminController {
     return { success: true, result };
   }
 
-  // ✅ Edit user (student/teacher)
   @Post('edit-user')
   async editUser(
     @Body()
@@ -103,7 +114,6 @@ export class AdminController {
     return { success: true, result };
   }
 
-  // ✅ Delete user (student/teacher)
   @Delete('delete-user')
   async deleteUser(
     @Body()
@@ -117,14 +127,12 @@ export class AdminController {
     return { success: true, result };
   }
 
-  // ✅ Fetch recent activities
   @Get('activities')
   async getRecentActivities() {
     const activities = await this.adminService.getRecentActivities();
     return { success: true, activities };
   }
 
-  // ✅ Upload Profile Picture (Actual Image) for Admin
   @Post('upload-profile-picture/:adminId')
   @UseInterceptors(FileInterceptor('file', { storage }))
   async uploadProfilePicture(
@@ -132,7 +140,6 @@ export class AdminController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
-    // file.path should be the Cloudinary URL/path returned by the storage adapter
     return await this.adminService.saveProfilePicture(adminId, file.path);
   }
 }

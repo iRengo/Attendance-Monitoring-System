@@ -94,6 +94,15 @@ export default function UserManagement() {
 
   const handleCsvChange = (e) => setCsvFile(e.target.files[0]);
 
+  /**
+   * CSV Import:
+   * Backend currently returns { success: true, results: [...] }
+   * Each row in results should look like:
+   *   { schoolEmail, status: 'Created' | 'Failed' | 'Existing', type, error? }
+   *
+   * If backend does NOT mark duplicates as 'Existing', we infer duplicates by matching
+   * typical auth errors in the 'error' field (email-already-exists).
+   */
   const handleImportCsv = async () => {
     if (!csvFile) return toast.error("Please select a CSV file first!");
     const ext = csvFile.name.split(".").pop()?.toLowerCase();
@@ -108,13 +117,50 @@ export default function UserManagement() {
         body: formData,
       });
       const result = await res.json();
-      if (result.success) {
-        toast.success("CSV import completed!");
-        await logActivity("Imported CSV file", "System");
+
+      if (!res.ok || !result.success) {
+        toast.error(result.message || "CSV import failed.");
       } else {
-        toast.error("CSV import failed.");
+        // The backend now returns: addedCount, existingCount, failedCount, totalRows, results[]
+        const {
+          addedCount = 0,
+          existingCount = 0,
+          failedCount = 0,
+          totalRows = 0,
+        } = result;
+
+        if (totalRows === 0) {
+          toast.info("CSV contained no valid rows.");
+        } else if (addedCount === 0 && existingCount > 0 && failedCount === 0) {
+          toast.info("Data already existing. No new records imported.");
+        } else if (addedCount === 0 && existingCount > 0 && failedCount > 0) {
+          toast.info(
+            `No new records. Existing: ${existingCount}, Failed: ${failedCount}`
+          );
+        } else if (addedCount > 0 && existingCount > 0 && failedCount === 0) {
+          toast.success(
+            `Import complete. Added: ${addedCount}, Existing: ${existingCount}`
+          );
+        } else if (addedCount > 0 && existingCount > 0 && failedCount > 0) {
+          toast.success(
+            `Import complete. Added: ${addedCount}, Existing: ${existingCount}, Failed: ${failedCount}`
+          );
+        } else if (addedCount > 0 && existingCount === 0 && failedCount === 0) {
+          toast.success(`CSV import completed. Added: ${addedCount}`);
+        } else if (addedCount > 0 && failedCount > 0 && existingCount === 0) {
+          toast.success(
+            `Import done. Added: ${addedCount}, Failed: ${failedCount}`
+          );
+        } else if (addedCount === 0 && existingCount === 0 && failedCount > 0) {
+          toast.error(`All rows failed. Failed: ${failedCount}`);
+        } else {
+          toast.success("CSV import completed!");
+        }
+
+        // Removed duplicate logActivity() call here.
       }
-      fetchAllAccounts();
+
+      await fetchAllAccounts();
     } catch (err) {
       console.error(err);
       toast.error("Import failed — check server.");
@@ -272,7 +318,6 @@ export default function UserManagement() {
   return (
     <AdminLayout title="User Management">
       <div className="bg-white shadow-md rounded-lg p-4">
-        {/* Top bar (hidden while viewing or editing) */}
         {showingTable && (
           <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <CSVImport
@@ -289,7 +334,6 @@ export default function UserManagement() {
           </div>
         )}
 
-        {/* Breadcrumb / Back bar for view or edit */}
         {(viewUser || editUser) && (
           <div className="flex items-center justify-between mb-4">
             <button
@@ -302,14 +346,11 @@ export default function UserManagement() {
               ← Back to Users
             </button>
             <div className="text-sm text-gray-500">
-              {editUser
-                ? `Editing ${editUser.role}`
-                : `Viewing ${viewUser.role}`}
+              {editUser ? `Editing ${editUser.role}` : `Viewing ${viewUser.role}`}
             </div>
           </div>
         )}
 
-        {/* Filters hidden during view/edit */}
         {showingTable && (
           <FiltersSearch
             filter={filter}
@@ -319,7 +360,6 @@ export default function UserManagement() {
           />
         )}
 
-        {/* Main swap area */}
         {showingTable && (
           <UsersTable
             loading={loading}
@@ -338,7 +378,6 @@ export default function UserManagement() {
               onClose={() => setViewUser(null)}
               swap
             />
-            {/* Optional inline edit button */}
             <div className="flex justify-end">
               <button
                 onClick={() => handleEdit(viewUser)}
@@ -364,11 +403,10 @@ export default function UserManagement() {
         )}
       </div>
 
-      {/* Add Student Modal (still overlay) */}
       {addModalUser && (
         <AddStudentModal
           user={addModalUser}
-            onChange={setAddModalUser}
+          onChange={setAddModalUser}
           onSave={handleCreateStudent}
           onCancel={() => setAddModalUser(null)}
           creating={creating}
