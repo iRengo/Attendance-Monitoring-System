@@ -9,9 +9,9 @@ export async function loadPSGC() {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Failed to fetch ${url} (${res.status})`);
-  }
+  }``
 
-  // Prefer JSON if server sets the content-type
+  // Prefer JSON if server sets the content-type    
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) {
     cachedPSGC = await res.json();

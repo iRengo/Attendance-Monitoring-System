@@ -1,9 +1,9 @@
 import React from "react";
 import TeacherLayout from "../../components/teacherLayout";
-import useTeacherSettings from "./components/hooks/useTeacherSettings";
-import SettingsTabs from "./components/SettingsTabs";
-import AccountTab from "./components/AccountTab";
-import ProfileTab from "./components/ProfileTab";
+import useTeacherSettings from "./components/teacherSettings/hooks/useTeacherSettings";
+import SettingsTabs from "./components/teacherSettings/SettingsTabs";
+import AccountTab from "./components/teacherSettings/AccountTab";
+import ProfileTab from "./components/teacherSettings/ProfileTab";
 
 /**
  * TeacherSettings with temp password banner based ONLY on temp_password string.

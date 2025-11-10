@@ -1,11 +1,11 @@
 import React from "react";
 import StudentLayout from "../../components/studentLayout";
 import { Plus } from "lucide-react";
-import useStudentSchedules from "./components/hooks/useStudentSchedules";
-import JoinClassForm from "./components/JoinClassForm";
-import ClassCard from "./components/ClassCard";
-import ClassDetail from "./components/ClassDetail";
-import LeaveModal from "./components/LeaveModal";
+import useStudentSchedules from "./components/studentClasses/hooks/useStudentSchedules";
+import JoinClassForm from "./components/studentClasses/JoinClassForm";
+import ClassCard from "./components/studentClasses/ClassCard";
+import ClassDetail from "./components/studentClasses/ClassDetail";
+import LeaveModal from "./components/studentClasses/LeaveModal";
 
 /**
  * StudentSchedules (concise)

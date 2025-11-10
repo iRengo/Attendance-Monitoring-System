@@ -95,11 +95,41 @@ export class TeacherController {
 
   @Post("add-post")
   async addPost(@Body() body: any) {
-    const { teacherId, classId, content, fileUrl, imageUrl } = body;
-    if (!teacherId || !classId || (!content && !fileUrl && !imageUrl)) {
+    const { teacherId, classId, content, fileUrl, imageUrl, attachments } = body;
+    if (!teacherId || !classId) {
+      throw new BadRequestException("Missing teacherId or classId.");
+    }
+    if (!content && !fileUrl && !imageUrl && (!attachments || !attachments.length)) {
       throw new BadRequestException("Post must include text, image, or file.");
     }
     return await this.teacherService.addPost(body);
+  }
+
+  @Put("update-post/:classId/:postId")
+  async updatePost(
+    @Param("classId") classId: string,
+    @Param("postId") postId: string,
+    @Body() body: any
+  ) {
+    const { teacherId, content, attachments } = body;
+    if (!teacherId) throw new BadRequestException("Missing teacherId.");
+    if (typeof content === "undefined" && typeof attachments === "undefined") {
+      throw new BadRequestException("Nothing to update. Provide content and/or attachments.");
+    }
+    return await this.teacherService.updatePost(teacherId, classId, postId, {
+      content,
+      attachments,
+    });
+  }
+
+  @Delete("delete-post/:classId/:postId")
+  async deletePost(
+    @Param("classId") classId: string,
+    @Param("postId") postId: string,
+    @Query("teacherId") teacherId: string
+  ) {
+    if (!teacherId) throw new BadRequestException("Teacher ID is required.");
+    return await this.teacherService.deletePost(teacherId, classId, postId);
   }
 
   @Get("class-posts")
@@ -135,10 +165,7 @@ export class TeacherController {
     @UploadedFile() file: Express.Multer.File
   ) {
     if (!file) throw new BadRequestException("No file uploaded");
-    return await this.teacherService.saveProfilePicture(
-      teacherId,
-      file.path
-    );
+    return await this.teacherService.saveProfilePicture(teacherId, file.path);
   }
 
   @Get("attendance-sessions")

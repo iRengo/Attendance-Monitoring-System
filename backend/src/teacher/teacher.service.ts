@@ -4,10 +4,256 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import * as nodemailer from "nodemailer";
+import * as path from "path";
+import * as fs from "fs";
 
 @Injectable()
 export class TeacherService {
   private db = getFirestore();
+
+  private transporter: nodemailer.Transporter | null = null;
+
+  private getMailer() {
+    if (this.transporter) return this.transporter;
+
+    const user = process.env.SYSTEM_EMAIL;
+    const rawPass = process.env.SYSTEM_EMAIL_PASSWORD || "";
+    const pass = rawPass.replace(/\s+/g, "");
+
+    if (!user || !pass) {
+      throw new Error(
+        "SYSTEM_EMAIL or SYSTEM_EMAIL_PASSWORD missing. Cannot send post notifications."
+      );
+    }
+
+    this.transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: { user, pass },
+      logger: true,
+      debug: true,
+    });
+
+    return this.transporter;
+  }
+
+  private async sendPostNotificationEmails(params: {
+    classId: string;
+    teacherId: string;
+    teacherName: string;
+    subjectName: string;
+    classDisplayName: string;
+    postContent: string | null;
+    fileUrl?: string | null;
+    imageUrl?: string | null;
+    attachments?: Array<{
+      url: string;
+      name?: string;
+      type?: string;
+      kind?: string;
+      previewThumbUrl?: string | null;
+    }>;
+  }) {
+    const {
+      classId,
+      teacherName,
+      subjectName,
+      classDisplayName,
+      postContent,
+      fileUrl,
+      imageUrl,
+      attachments = [],
+    } = params;
+
+    const classRef = this.db.collection("classes").doc(classId);
+    const studentsSnap = await classRef.collection("students").get();
+    if (studentsSnap.empty) return;
+
+    const studentEmails: string[] = [];
+    for (const docSnap of studentsSnap.docs) {
+      const studentId = docSnap.id;
+      const studentRef = this.db.collection("students").doc(studentId);
+      const studentDataSnap = await studentRef.get();
+      if (!studentDataSnap.exists) continue;
+      const data = studentDataSnap.data() || {};
+
+      const personalEmail =
+        (data.personal_email ||
+          data.personalEmail ||
+          data.email ||
+          data.school_email) ?? "";
+
+      const emailClean = (personalEmail || "").trim();
+      if (
+        emailClean &&
+        /^[^@]+@[^@]+\.[^@]+$/.test(emailClean) &&
+        !studentEmails.includes(emailClean)
+      ) {
+        studentEmails.push(emailClean);
+      }
+    }
+    if (!studentEmails.length) return;
+
+    const from =
+      process.env.POST_NOTIFICATION_FROM ||
+      `AICS Notifications <${process.env.SYSTEM_EMAIL}>`;
+    const subjectPrefix =
+      process.env.POST_NOTIFICATION_SUBJECT_PREFIX || "[Class Update]";
+    const subject = `${subjectPrefix} ${subjectName} (${classDisplayName})`;
+
+    const logoUrl = (process.env.POST_EMAIL_LOGO_URL || "").trim();
+    const logoFileEnv = (process.env.POST_EMAIL_LOGO_FILE || "").trim();
+    let logoCid: string | null = null;
+    const mailAttachments: nodemailer.Attachment[] = [];
+
+    if (logoFileEnv) {
+      const absPath = path.isAbsolute(logoFileEnv)
+        ? logoFileEnv
+        : path.resolve(process.cwd(), logoFileEnv);
+      if (fs.existsSync(absPath)) {
+        logoCid = "aics-logo@cid";
+        mailAttachments.push({
+          filename: path.basename(absPath),
+          path: absPath,
+          cid: logoCid,
+        });
+      }
+    }
+
+    let topLogoBlock = "";
+    if (logoCid) {
+      topLogoBlock = `
+        <div style="text-align:center;margin:0 0 16px;">
+          <img src="cid:${logoCid}" alt="" style="max-width:140px;height:auto;" />
+        </div>`;
+    } else if (logoUrl) {
+      const safeUrl = this.escapeAttr(logoUrl);
+      topLogoBlock = `
+        <div style="text-align:center;margin:0 0 16px;">
+          <img src="${safeUrl}" alt="" style="max-width:140px;height:auto;" />
+        </div>`;
+    } else {
+      topLogoBlock = `
+        <div style="text-align:center;margin:0 0 12px;font-weight:bold;font-size:18px;">
+          
+        </div>`;
+    }
+
+    const htmlParts: string[] = [];
+    htmlParts.push(
+      `<p style="margin:0 0 12px;">A new post was added in <strong>${this.escapeHtml(
+        classDisplayName
+      )}</strong> by <strong>${this.escapeHtml(teacherName)}</strong>.</p>`
+    );
+    if (postContent) {
+      htmlParts.push(
+        `<p style="white-space:pre-line; margin:0 0 12px;">${this.escapeHtml(
+          postContent
+        )}</p>`
+      );
+    }
+    if (imageUrl) {
+      const safeImage = this.escapeAttr(imageUrl);
+      htmlParts.push(
+        `<p style="margin:0 0 12px;">Image: <a href="${safeImage}" target="_blank" rel="noopener noreferrer">${safeImage}</a></p>`
+      );
+    }
+    if (fileUrl) {
+      const safeFile = this.escapeAttr(fileUrl);
+      htmlParts.push(
+        `<p style="margin:0 0 12px;">Attachment: <a href="${safeFile}" target="_blank" rel="noopener noreferrer">${safeFile}</a></p>`
+      );
+    }
+    if (attachments.length) {
+      htmlParts.push(
+        `<div style="margin:16px 0 8px;font-weight:bold;">All Attachments:</div>`
+      );
+      htmlParts.push(
+        `<ul style="margin:0 0 16px;padding-left:18px;font-size:13px;color:#444;">` +
+          attachments
+            .map((a) => {
+              const safeUrl = this.escapeAttr(a.url);
+              const name = this.escapeHtml(a.name || a.url);
+              const kind =
+                a.kind === "image"
+                  ? "Image"
+                  : a.type?.split("/")[1]?.toUpperCase() || "File";
+              return `<li style="margin:4px 0;"><strong>${kind}:</strong> <a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${name}</a></li>`;
+            })
+            .join("") +
+          `</ul>`
+      );
+    }
+
+    htmlParts.push(
+      `<p style="margin:20px 0 0;font-size:13px;color:#555;">You received this because you are enrolled in ${this.escapeHtml(
+        classDisplayName
+      )}. Please do not reply directly to this email.</p>`
+    );
+
+    const htmlBody = `<div style="font-family:Arial, sans-serif;">
+      ${topLogoBlock}
+      ${htmlParts.join("")}
+    </div>`;
+
+    const textBody = [
+      `AICS`,
+      `New post in ${classDisplayName} by ${teacherName}`,
+      postContent ? `Content:\n${postContent}` : "",
+      imageUrl ? `Image: ${imageUrl}` : "",
+      fileUrl ? `Attachment: ${fileUrl}` : "",
+      attachments.length
+        ? `All Attachments:\n${attachments
+            .map(
+              (a, i) =>
+                `${i + 1}. ${(a.kind === "image" ? "Image" : "File")}: ${
+                  a.name || a.url
+                } -> ${a.url}`
+            )
+            .join("\n")}`
+        : "",
+      `You received this because you are enrolled in ${classDisplayName}.`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    try {
+      const mailer = this.getMailer();
+      await mailer.verify();
+
+      const toAddress = process.env.SYSTEM_EMAIL || "undisclosed-recipients:;";
+      const chunkSize = 90;
+
+      for (let i = 0; i < studentEmails.length; i += chunkSize) {
+        const slice = studentEmails.slice(i, i + chunkSize);
+        await mailer.sendMail({
+          from,
+          to: toAddress,
+          bcc: slice,
+          subject,
+          html: htmlBody,
+          text: textBody,
+          attachments: mailAttachments.length ? mailAttachments : undefined,
+        });
+      }
+    } catch (err) {
+      console.error("Failed sending post notification emails:", err);
+    }
+  }
+
+  private escapeHtml(str: string) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+  private escapeAttr(str: string) {
+    return String(str).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
 
   private buildComputedName(
     subjectName?: string,
@@ -27,11 +273,9 @@ export class TeacherService {
 
   private buildClassDoc(data: any) {
     const subjectName = (data.subjectName ?? data.subject ?? "").trim();
-
-    // Transitional fallback: if roomNumber missing but legacy roomId exists, adopt roomId as roomNumber.
     const legacyRoomId = (data.roomId ?? "").trim();
     const roomNumberRaw = (data.roomNumber ?? "").trim();
-    const roomNumber = roomNumberRaw || legacyRoomId; // Only keep roomNumber.
+    const roomNumber = roomNumberRaw || legacyRoomId;
 
     const section = (data.section ?? "").trim();
     const gradeLevel = (data.gradeLevel ?? "").toString().trim();
@@ -51,7 +295,6 @@ export class TeacherService {
       name: computedName,
       subjectName,
       teacherId,
-      // roomId removed permanently
       roomNumber,
       section,
       gradeLevel,
@@ -67,14 +310,13 @@ export class TeacherService {
       teacherId,
       subjectName,
       roomNumber,
-      roomId, // may come from legacy clients
+      roomId,
       section,
       days,
       time,
       gradeLevel,
     } = data;
 
-    // Validate after normalization fallback
     const effectiveRoomNumber = (roomNumber || roomId || "").trim();
 
     if (
@@ -102,7 +344,6 @@ export class TeacherService {
 
     await classRef.set(classDoc);
 
-    // Hard delete legacy field if client accidentally sent it
     await classRef.update({
       subject: FieldValue.delete(),
       roomId: FieldValue.delete(),
@@ -169,8 +410,6 @@ export class TeacherService {
     }
 
     const oldSubject = (cls?.subjectName || "").trim();
-
-    // Build updated doc (will omit roomId)
     const updated = this.buildClassDoc({ ...cls, ...data });
 
     await classRef.update({
@@ -180,7 +419,7 @@ export class TeacherService {
       schedule: FieldValue.delete(),
       startTime: FieldValue.delete(),
       endTime: FieldValue.delete(),
-      roomId: FieldValue.delete(), // ensure legacy field removed
+      roomId: FieldValue.delete(),
     });
 
     const teacherRef = this.db.collection("teachers").doc(teacherId);
@@ -205,7 +444,6 @@ export class TeacherService {
       }
     }
 
-    // Sync legacy embedded student class objects: remove roomId
     const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
@@ -213,14 +451,11 @@ export class TeacherService {
       const studentSnap = await studentRef.get();
       if (!studentSnap.exists) continue;
       const studentData = studentSnap.data() as any;
-      if (
-        Array.isArray(studentData.classes) &&
-        studentData.classes.length
-      ) {
+      if (Array.isArray(studentData.classes) && studentData.classes.length) {
         const allStrings = studentData.classes.every(
           (c: any) => typeof c === "string"
         );
-        if (allStrings) continue; // string IDs only, skip
+        if (allStrings) continue;
         const updatedClasses = studentData.classes.map((c: any) =>
           c.id === classId
             ? {
@@ -229,7 +464,6 @@ export class TeacherService {
                 name: updated.name,
                 subjectName: updated.subjectName,
                 teacherId: updated.teacherId,
-                // roomId removed
                 roomNumber: updated.roomNumber,
                 section: updated.section,
                 gradeLevel: updated.gradeLevel,
@@ -265,10 +499,7 @@ export class TeacherService {
       const studentSnap = await studentRef.get();
       if (!studentSnap.exists) continue;
       const studentData = studentSnap.data() as any;
-      if (
-        Array.isArray(studentData.classes) &&
-        studentData.classes.length
-      ) {
+      if (Array.isArray(studentData.classes) && studentData.classes.length) {
         const allStrings = studentData.classes.every(
           (c: any) => typeof c === "string"
         );
@@ -278,7 +509,7 @@ export class TeacherService {
           const updatedClasses = studentData.classes.filter(
             (c: any) => c.id !== classId
           );
-            await studentRef.update({ classes: updatedClasses });
+          await studentRef.update({ classes: updatedClasses });
         }
       }
     }
@@ -314,40 +545,148 @@ export class TeacherService {
   }
 
   async addPost(data: any) {
-    const {
-      teacherId,
-      classId,
-      content,
-      fileUrl,
-      imageUrl,
-      fileName,
-      fileType,
-    } = data;
+    const { teacherId, classId, content, attachments } = data;
+
     if (!teacherId || !classId)
       throw new BadRequestException("Missing teacherId or classId");
+
     const classRef = this.db.collection("classes").doc(classId);
     const classSnap = await classRef.get();
     if (!classSnap.exists) throw new NotFoundException("Class not found");
-    if (classSnap.data()?.teacherId !== teacherId) {
+
+    const classData = classSnap.data() || {};
+    if (classData.teacherId !== teacherId) {
       throw new BadRequestException(
         "You do not have permission to post to this class."
       );
     }
-    if (!content && !fileUrl && !imageUrl) {
+
+    const atts: Array<{
+      url: string;
+      name?: string;
+      type?: string;
+      kind?: string;
+      previewThumbUrl?: string | null;
+    }> = Array.isArray(attachments)
+      ? attachments.filter((a) => a?.url)
+      : [];
+
+    if (!content && atts.length === 0) {
       throw new BadRequestException("Post must include text, image, or file.");
     }
+
     const post = {
       teacherId,
       classId,
       content: content ?? null,
-      fileUrl: fileUrl ?? null,
-      imageUrl: imageUrl ?? null,
-      fileName: fileName ?? null,
-      fileType: fileType ?? null,
+      attachments: atts,
       timestamp: new Date().toISOString(),
     };
+
     const postRef = await classRef.collection("posts").add(post);
+
+    let teacherName = "Your Teacher";
+    try {
+      const tSnap = await this.db.collection("teachers").doc(teacherId).get();
+      if (tSnap.exists) {
+        const t = tSnap.data() || {};
+        teacherName = `${t.firstName ?? t.firstname ?? ""} ${t.middleName ?? t.middlename ?? ""} ${
+          t.lastName ?? t.lastname ?? ""
+        }`
+          .replace(/\s+/g, " ")
+          .trim() || "Your Teacher";
+      }
+    } catch {
+      // ignore
+    }
+
+    const awaitEmails =
+      (process.env.POST_EMAIL_AWAIT || "false").toLowerCase() === "true";
+
+    const emailPromise = this.sendPostNotificationEmails({
+      classId,
+      teacherId,
+      teacherName,
+      subjectName: classData.subjectName || "Class",
+      classDisplayName: classData.name || classData.subjectName || classId,
+      postContent: content ?? "",
+      attachments: atts,
+    });
+
+    if (awaitEmails) {
+      await emailPromise;
+    } else {
+      emailPromise.catch((e) =>
+        console.error("sendPostNotificationEmails error (non-blocking):", e)
+      );
+    }
+
     return { success: true, post: { id: postRef.id, ...post } };
+  }
+
+  async updatePost(
+    teacherId: string,
+    classId: string,
+    postId: string,
+    data: { content?: string; attachments?: any[] }
+  ) {
+    if (!teacherId || !classId || !postId)
+      throw new BadRequestException("Missing teacherId, classId or postId");
+
+    const classRef = this.db.collection("classes").doc(classId);
+    const classSnap = await classRef.get();
+    if (!classSnap.exists) throw new NotFoundException("Class not found");
+
+    const classData = classSnap.data() || {};
+    if (classData.teacherId !== teacherId) {
+      throw new BadRequestException(
+        "You do not have permission to update posts in this class."
+      );
+    }
+
+    const postRef = classRef.collection("posts").doc(postId);
+    const postSnap = await postRef.get();
+    if (!postSnap.exists) throw new NotFoundException("Post not found");
+
+    const updatePayload: any = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (typeof data.content !== "undefined") {
+      updatePayload.content = data.content ?? null;
+    }
+    if (typeof data.attachments !== "undefined") {
+      const atts = Array.isArray(data.attachments)
+        ? data.attachments.filter((a) => a?.url)
+        : [];
+      updatePayload.attachments = atts;
+    }
+
+    await postRef.update(updatePayload);
+    const updated = (await postRef.get()).data() || {};
+    return { success: true, post: { id: postId, ...updated } };
+  }
+
+  async deletePost(teacherId: string, classId: string, postId: string) {
+    if (!teacherId || !classId || !postId)
+      throw new BadRequestException("Missing teacherId, classId or postId");
+
+    const classRef = this.db.collection("classes").doc(classId);
+    const classSnap = await classRef.get();
+    if (!classSnap.exists) throw new NotFoundException("Class not found");
+
+    const classData = classSnap.data() || {};
+    if (classData.teacherId !== teacherId) {
+      throw new BadRequestException(
+        "You do not have permission to delete posts in this class."
+      );
+    }
+
+    const postRef = classRef.collection("posts").doc(postId);
+    const postSnap = await postRef.get();
+    if (!postSnap.exists) throw new NotFoundException("Post not found");
+
+    await postRef.delete();
+    return { success: true, message: "Post deleted successfully" };
   }
 
   async getClassPosts(teacherId: string, classId: string) {
@@ -427,7 +766,12 @@ export class TeacherService {
       .where("teacherId", "==", teacherId)
       .get();
     if (classesSnapshot.empty)
-      return { success: true, totalClasses: 0, totalStudents: 0, totalSubjects: 0 };
+      return {
+        success: true,
+        totalClasses: 0,
+        totalStudents: 0,
+        totalSubjects: 0,
+      };
     const subjectSet = new Set<string>();
     for (const classDoc of classesSnapshot.docs) {
       const classData: any = classDoc.data();

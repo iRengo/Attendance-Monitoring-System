@@ -1,9 +1,9 @@
 import React from "react";
 import AdminLayout from "../../components/adminLayout";
-import useAdminSettings from "./components/hooks/useAdminSettings";
-import AdminInfo from "./components/AdminInfo";
-import PasswordUploaderCard from "./components/PasswordUploaderCard";
-import MaintenanceSection from "./components/MaintenanceSection";
+import useAdminSettings from "./components/adminSettings/hooks/useAdminSettings";
+import AdminInfo from "./components/adminSettings/AdminInfo";
+import PasswordUploaderCard from "./components/adminSettings/PasswordUploaderCard";
+import MaintenanceSection from "./components/adminSettings/MaintenanceSection";
 
 /**
  * AdminSettings page — Confirmations handled by SweetAlert2 inside the hook.

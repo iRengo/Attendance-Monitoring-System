@@ -5,16 +5,16 @@ import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../../firebase";
 import Swal from "sweetalert2";
 
-import ClassCard from "./components/ClassCard";
-import ClassModal from "./components/ClassModal";
-import PostComposer from "./components/PostComposer";
-import PostsList from "./components/PostsList";
-import PeopleTab from "./components/PeopleTab";
-import PreviewModal from "./components/PreviewModal";
+import ClassCard from "./components/teacherClasses/ClassCard";
+import ClassModal from "./components/teacherClasses/ClassModal";
+import PostComposer from "./components/teacherClasses/PostComposer";
+import PostsList from "./components/teacherClasses/PostsList";
+import PeopleTab from "./components/teacherClasses/PeopleTab";
+import PreviewModal from "./components/teacherClasses/PreviewModal";
 
-import useClasses from "./components/hooks/useClasses";
-import usePosts from "./components/hooks/usePosts";
-import useStudents from "./components/hooks/useStudents";
+import useClasses from "./components/teacherClasses/hooks/useClasses";
+import usePosts from "./components/teacherClasses/hooks/usePosts";
+import useStudents from "./components/teacherClasses/hooks/useStudents";
 
 export default function CurrentClasses() {
   const teacherId = auth.currentUser?.uid;

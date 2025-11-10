@@ -6,26 +6,48 @@ export class StudentService {
   private db = getFirestore();
 
   async joinClassByLink(studentId: string, classId: string) {
-    if (!studentId || !classId) throw new BadRequestException('Missing studentId or classId');
-    const classRef = this.db.collection('classes').doc(classId);
+    if (!studentId || !classId) {
+      throw new BadRequestException('Missing studentId or classId');
+    }
+  
+    // Sanitize incoming classId in case the frontend sent a prefixed link
+    let cleaned = classId.trim();
+  
+    // Strip possible full URL
+    cleaned = cleaned.replace(/^https?:\/\/[^/]+/i, '');
+    cleaned = cleaned.replace(/^\/+/, '');
+    cleaned = cleaned.replace(/^join-class\//i, '').replace(/^joinclass\//i, '');
+  
+    // If there are still slashes, take only last segment (or reject)
+    if (cleaned.includes('/')) {
+      const parts = cleaned.split('/').filter(Boolean);
+      cleaned = parts[parts.length - 1];
+    }
+  
+    // Final validation: Firestore doc IDs cannot contain '/'
+    if (!cleaned || cleaned.includes('/')) {
+      throw new BadRequestException('Invalid classId format');
+    }
+  
+    const classRef = this.db.collection('classes').doc(cleaned);
     const classSnap = await classRef.get();
     if (!classSnap.exists) throw new NotFoundException('Class not found');
-
+  
     const enrollmentRef = classRef.collection('students').doc(studentId);
     if ((await enrollmentRef.get()).exists) {
       return { success: false, message: 'You already joined this class' };
     }
-
+  
     await enrollmentRef.set({ joinedAt: new Date().toISOString() });
     await this.db.collection('students').doc(studentId)
-      .set({ classes: FieldValue.arrayUnion(classId) }, { merge: true });
-
+      .set({ classes: FieldValue.arrayUnion(cleaned) }, { merge: true });
+  
     const classData = classSnap.data() || {};
     return {
       success: true,
       message: 'Class joined successfully',
       class: {
-        id: classId,
+        id: cleaned,
         name: classData.name ?? '',
         subjectName: classData.subjectName ?? '',
         teacherId: classData.teacherId ?? '',
