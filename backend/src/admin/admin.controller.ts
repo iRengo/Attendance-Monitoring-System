@@ -8,9 +8,10 @@ import {
   Body,
   Delete,
   Param,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { AdminService } from './admin.service';
+import { AdminService, StudentAttendanceRow, TeacherComplianceRow, MonthlySummaryRow } from './admin.service';
 import { storage } from '../cloudinary.config';
 import { diskStorage } from 'multer';
 
@@ -45,7 +46,6 @@ export class AdminController {
       totalRows,
     } = await this.adminService.importCSV(file);
 
-    // Return expanded metrics (frontend relies on these counts)
     return {
       success,
       addedCount,
@@ -141,5 +141,53 @@ export class AdminController {
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
     return await this.adminService.saveProfilePicture(adminId, file.path);
+  }
+
+  /* ---------------- OVERALL REPORT ENDPOINTS ---------------- */
+
+  @Get('report/student-attendance-all')
+  async studentAttendanceAll(
+    @Query('studentId') studentId?: string,
+  ): Promise<{ success: boolean; meta: any; rows: StudentAttendanceRow[] }> {
+    const rows = await this.adminService.buildStudentAttendanceReportAll(studentId);
+    return { success: true, meta: { scope: 'overall', studentId: studentId || '' }, rows };
+  }
+
+  @Get('report/teacher-compliance-all')
+  async teacherComplianceAll(
+    @Query('teacherId') teacherId?: string,
+  ): Promise<{ success: boolean; meta: any; rows: TeacherComplianceRow[] }> {
+    const rows = await this.adminService.buildTeacherComplianceReportAll(teacherId);
+    return { success: true, meta: { scope: 'overall', teacherId: teacherId || '' }, rows };
+  }
+
+  @Get('report/monthly-summary')
+  async monthlySummary(
+    @Query('month') month?: string, // YYYY-MM
+  ): Promise<{ success: boolean; meta: any; rows: MonthlySummaryRow[] }> {
+    const rows = await this.adminService.buildMonthlySummaryReportAll(month);
+    return { success: true, meta: { scope: month ? 'single-month' : 'all-months', month: month || '' }, rows };
+  }
+
+  /* ---------------- Lookup for search selects ---------------- */
+
+  @Get('list/students')
+  async listStudents(
+    @Query('q') q?: string,
+    @Query('limit') limit = '20',
+  ) {
+    const lim = Math.max(1, Math.min(Number(limit) || 20, 100));
+    const rows = await this.adminService.listStudents(q || '', lim);
+    return { success: true, rows };
+  }
+
+  @Get('list/teachers')
+  async listTeachers(
+    @Query('q') q?: string,
+    @Query('limit') limit = '20',
+  ) {
+    const lim = Math.max(1, Math.min(Number(limit) || 20, 100));
+    const rows = await this.adminService.listTeachers(q || '', lim);
+    return { success: true, rows };
   }
 }

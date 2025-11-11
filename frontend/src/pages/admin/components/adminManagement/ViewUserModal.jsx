@@ -1,13 +1,32 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { db } from "../../../../firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 /**
  * ViewUserModal
  * If swap = true it renders inline (panel) without its own Back/Close button.
  * The parent provides the "← Back to Users" control already.
  * When swap = false (legacy modal overlay) it still shows a Close button.
+ *
+ * Added:
+ * - Fetch student's Firestore document (students/{studentId}) to get its `section` (and any other fields you may want).
+ *   We look for an ID in: user.studentId, user.id, user.uid.
+ * - Display the fetched `section` under the name (header area).
+ * - Prevent double render if user changes quickly.
  */
 export default function ViewUserModal({ user, fields, onClose, swap = false }) {
   if (!user) return null;
+
+  const [showPreview, setShowPreview] = useState(false);
+  const [studentInfo, setStudentInfo] = useState(null);
+
+  useEffect(() => {
+    const sid = user?.studentId || user?.id || user?.uid;
+    if (!sid) return;
+    getDoc(doc(db, "students", String(sid))).then((snap) => {
+      setStudentInfo(snap.exists() ? snap.data() : null);
+    });
+  }, [user]);
 
   const picCandidates = [
     user.profilePicUrl,
@@ -26,8 +45,6 @@ export default function ViewUserModal({ user, fields, onClose, swap = false }) {
       .find((v) => v.length > 0) ||
     "https://www.w3schools.com/howto/img_avatar.png";
 
-  const [showPreview, setShowPreview] = useState(false);
-
   const Wrapper = ({ children }) =>
     swap ? (
       <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-white to-blue-50 p-6 shadow-md">
@@ -45,6 +62,13 @@ export default function ViewUserModal({ user, fields, onClose, swap = false }) {
       </div>
     );
 
+  const displayName =
+    `${user.firstname || ""} ${user.middlename || ""} ${user.lastname || ""}`
+      .replace(/\s+/g, " ")
+      .trim() || user.name || "User Details";
+
+  const roleLabel = user.role || (user.classes ? "Student" : "Teacher");
+
   return (
     <>
       <Wrapper>
@@ -53,7 +77,7 @@ export default function ViewUserModal({ user, fields, onClose, swap = false }) {
           <div className="relative group">
             <img
               src={profileSrc}
-              alt={`${user.firstname || user.name || "User"} profile`}
+              alt={`${displayName} profile`}
               className="w-24 h-24 rounded-xl object-cover border-2 border-blue-200 shadow-sm cursor-pointer group-hover:scale-[1.02] transition"
               onClick={() => setShowPreview(true)}
               onError={(e) => {
@@ -62,24 +86,31 @@ export default function ViewUserModal({ user, fields, onClose, swap = false }) {
               }}
             />
             <span className="absolute -top-2 -left-2 bg-blue-600 text-white text-[10px] px-2 py-0.5 rounded-full shadow">
-              {user.role || (user.classes ? "Student" : "Teacher")}
+              {roleLabel}
             </span>
           </div>
 
-            <div className="flex-1">
-              <h2 className="text-2xl font-bold text-blue-700">
-                {`${user.firstname || ""} ${user.middlename || ""} ${
-                  user.lastname || ""
-                }`.trim() ||
-                  user.name ||
-                  "User Details"}
-              </h2>
-              {user.school_email && (
-                <p className="text-xs text-gray-500 mt-1 break-all">
-                  {user.school_email}
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold text-blue-700">{displayName}</h2>
+            {user.school_email && (
+              <p className="text-sm text-gray-600 mt-1 break-all">
+                {user.school_email}
+              </p>
+            )}
+            {/* Minimal: show Student ID and Section from students/{id} */}
+            <div className="mt-2">
+              {studentInfo?.studentId && (
+                <p className="text-sm text-gray-600 break-all">
+                  Student ID: {studentInfo.studentId}
+                </p>
+              )}
+              {studentInfo?.section && (
+                <p className="text-sm font-medium text-blue-600">
+                  Section: {studentInfo.section}
                 </p>
               )}
             </div>
+          </div>
         </div>
 
         {/* Details */}
@@ -135,7 +166,7 @@ export default function ViewUserModal({ user, fields, onClose, swap = false }) {
         )}
       </Wrapper>
 
-      {/* Full image preview (overlay still ok) */}
+      {/* Full image preview */}
       {showPreview && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center"

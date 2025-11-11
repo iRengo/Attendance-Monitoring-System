@@ -3,9 +3,7 @@ import { MoreHorizontal } from "lucide-react";
 
 /**
  * ClassCard
- * Small presentational component for each class in the grid.
- * Props:
- * - cls, teachers, gradeLevel, dropdownOpenId, setDropdownOpenId, onView, onRequestLeave
+ * Updated to display time_start / time_end (fallback to legacy time).
  */
 export default function ClassCard({
   cls,
@@ -16,10 +14,13 @@ export default function ClassCard({
   onView,
   onRequestLeave,
 }) {
+  const displayTime =
+    (cls.time_start && cls.time_end && `${cls.time_start} - ${cls.time_end}`) ||
+    cls.time ||
+    "-";
+
   return (
-    <div
-      className="relative bg-white rounded-2xl border border-gray-200 shadow-md hover:shadow-lg transition-all duration-300 p-6"
-    >
+    <div className="relative bg-white rounded-2xl border border-gray-200 shadow-md hover:shadow-lg transition-all duration-300 p-6">
       <div
         className="rounded-xl px-5 py-3 mb-2 text-white font-semibold text-lg shadow-sm"
         style={{ backgroundColor: "#3498db" }}
@@ -41,7 +42,7 @@ export default function ClassCard({
           <strong>Day:</strong> {cls.days}
         </p>
         <p className="text-gray-600 text-sm">
-          <strong>Time:</strong> {cls.time}
+          <strong>Time:</strong> {displayTime}
         </p>
         <p className="text-gray-600 text-sm">
           <strong>Teacher:</strong> {teachers[cls.teacherId] || "Loading..."}

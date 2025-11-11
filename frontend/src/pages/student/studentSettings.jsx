@@ -79,25 +79,8 @@ export default function StudentSettings() {
     if (success) closeCamera();
   };
 
-  // Start/stop mediapipe pipelines when camera changes
-  useEffect(() => {
-    if (!isCameraOpen) {
-      stopPipelines();
-      return;
-    }
-    const videoEl = webcamRef.current?.video;
-    if (videoEl) startPipelines(videoEl);
-    const wait = setInterval(() => {
-      if (webcamRef.current?.video && webcamRef.current.video.readyState === 4) {
-        startPipelines(webcamRef.current.video);
-        clearInterval(wait);
-      }
-    }, 300);
-    return () => {
-      clearInterval(wait);
-      stopPipelines();
-    };
-  }, [isCameraOpen, startPipelines, stopPipelines]);
+  // IMPORTANT: Do NOT auto-start pipelines here to avoid double-start race.
+  // Camera starts via CameraView onUserMedia -> startPipelines(videoEl)
 
   return (
     <StudentLayout title="Settings">
@@ -135,7 +118,7 @@ export default function StudentSettings() {
             )}
           </div>
 
-            <ProfilePictureSection
+          <ProfilePictureSection
             profilePic={studentData.profilePic}
             isCameraOpen={isCameraOpen}
             capturedImage={capturedImage}
@@ -156,6 +139,9 @@ export default function StudentSettings() {
             blinkDone={blinkDone}
             yawLeftDone={yawLeftDone}
             yawRightDone={yawRightDone}
+            // pass liveness controls so CameraView starts only once from onUserMedia
+            startPipelines={startPipelines}
+            stopPipelines={stopPipelines}
           />
         </div>
       )}

@@ -69,17 +69,17 @@ export default function ClassModal({
             ))}
           </select>
 
-            <select
-              value={classForm.gradeLevel}
-              onChange={(e) =>
-                setClassForm({ ...classForm, gradeLevel: e.target.value })
-              }
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-[#3498db] outline-none"
-            >
-              <option value="">Select Grade Level</option>
-              <option value="11">Grade 11</option>
-              <option value="12">Grade 12</option>
-            </select>
+          <select
+            value={classForm.gradeLevel}
+            onChange={(e) =>
+              setClassForm({ ...classForm, gradeLevel: e.target.value })
+            }
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-[#3498db] outline-none"
+          >
+            <option value="">Select Grade Level</option>
+            <option value="11">Grade 11</option>
+            <option value="12">Grade 12</option>
+          </select>
 
           <div className="relative">
             <button

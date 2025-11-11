@@ -6,14 +6,15 @@ import { doc, getDoc, collection, getDocs } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 
 /**
- * useStudentSchedules (updated for top-level classes collection and student.classes as array of IDs)
+ * useStudentSchedules
+ * Updated to fetch and use time_start / time_end (with legacy fallback to time).
  */
 export default function useStudentSchedules() {
   const navigate = useNavigate();
   const studentId = auth.currentUser?.uid;
 
   const [joinLink, setJoinLink] = useState("");
-  const [classes, setClasses] = useState([]); // array of full class objects { id, subjectName, ... }
+  const [classes, setClasses] = useState([]); // full class docs
   const [teachers, setTeachers] = useState({});
   const [selectedClass, setSelectedClass] = useState(null);
   const [dropdownOpenId, setDropdownOpenId] = useState(null);
@@ -21,7 +22,26 @@ export default function useStudentSchedules() {
   const [leaveModal, setLeaveModal] = useState({ open: false, classId: null });
   const [gradeLevel, setGradeLevel] = useState(null);
 
-  // Fetch student's class IDs and expand to class documents
+  // Helper to normalize a class doc (adds time_start/time_end fallback)
+  const normalizeClassDoc = (snap) => {
+    if (!snap || !snap.exists()) return null;
+    const data = snap.data() || {};
+    // Prefer new fields; fallback to legacy combined 'time'
+    let { time_start, time_end } = data;
+    if ((!time_start || !time_end) && data.time) {
+      const [a, b] = String(data.time).split(" - ").map((s) => s?.trim());
+      time_start = time_start || a || "";
+      time_end = time_end || b || "";
+    }
+    return {
+      id: snap.id,
+      ...data,
+      time_start: time_start || "",
+      time_end: time_end || "",
+    };
+  };
+
+  // Fetch student's classes
   useEffect(() => {
     if (!studentId) return;
 
@@ -33,7 +53,10 @@ export default function useStudentSchedules() {
         const studentData = studentDoc.data() || {};
         const classIds = Array.isArray(studentData.classes) ? studentData.classes : [];
         setGradeLevel(
-          studentData.gradeLevel || studentData.grade || studentData.level || "N/A"
+          studentData.gradeLevel ||
+            studentData.grade ||
+            studentData.level ||
+            "N/A"
         );
 
         if (!classIds.length) {
@@ -44,7 +67,7 @@ export default function useStudentSchedules() {
         const classDocs = await Promise.all(
           classIds.map(async (id) => {
             const snap = await getDoc(doc(db, "classes", id));
-            return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+            return normalizeClassDoc(snap);
           })
         );
 
@@ -57,7 +80,7 @@ export default function useStudentSchedules() {
     fetchStudentData();
   }, [studentId]);
 
-  // Fetch teacher names for classes
+  // Fetch teacher names
   useEffect(() => {
     const fetchTeacherNames = async () => {
       const teacherIds = classes.map((cls) => cls.teacherId).filter(Boolean);
@@ -66,19 +89,19 @@ export default function useStudentSchedules() {
       await Promise.all(
         teacherIds.map(async (id) => {
           if (teachers[id]) return;
-          const teacherDoc = await getDoc(doc(db, "teachers", id));
-          if (teacherDoc.exists()) {
-            const t = teacherDoc.data();
-            const firstName = t.firstName ?? t.firstname ?? "";
-            const middleName = t.middleName ?? t.middlename ?? "";
-            const lastName = t.lastName ?? t.lastname ?? "";
-            const fullName = `${firstName} ${middleName} ${lastName}`
-              .replace(/\s+/g, " ")
-              .trim();
-            teacherData[id] = fullName || "Unknown Teacher";
-          } else {
-            teacherData[id] = "Unknown Teacher";
-          }
+            const teacherDoc = await getDoc(doc(db, "teachers", id));
+            if (teacherDoc.exists()) {
+              const t = teacherDoc.data();
+              const firstName = t.firstName ?? t.firstname ?? "";
+              const middleName = t.middleName ?? t.middlename ?? "";
+              const lastName = t.lastName ?? t.lastname ?? "";
+              const fullName = `${firstName} ${middleName} ${lastName}`
+                .replace(/\s+/g, " ")
+                .trim();
+              teacherData[id] = fullName || "Unknown Teacher";
+            } else {
+              teacherData[id] = "Unknown Teacher";
+            }
         })
       );
 
@@ -90,7 +113,7 @@ export default function useStudentSchedules() {
     if (classes.length > 0) fetchTeacherNames();
   }, [classes]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch posts for selected class from top-level classes/{classId}/posts
+  // Fetch posts for selected class
   useEffect(() => {
     if (!selectedClass || !selectedClass.id) {
       setPosts([]);
@@ -107,7 +130,8 @@ export default function useStudentSchedules() {
         }));
         postsData.sort(
           (a, b) =>
-            new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+            new Date(b.timestamp || 0).getTime() -
+            new Date(a.timestamp || 0).getTime()
         );
         setPosts(postsData);
       } catch (err) {
@@ -119,7 +143,7 @@ export default function useStudentSchedules() {
     fetchClassPosts();
   }, [selectedClass]);
 
-  // Join class (checks profile picture)
+  // Join class
   const handleJoinLink = async () => {
     const raw = joinLink.trim();
     if (!raw) {
@@ -133,15 +157,9 @@ export default function useStudentSchedules() {
     }
 
     try {
-      // 1. Extract classId regardless of format
-      // Remove protocol + domain if present
       let cleaned = raw.replace(/^https?:\/\/[^/]+/i, "");
-      // Remove leading slashes
       cleaned = cleaned.replace(/^\/+/, "");
-      // Remove 'join-class/' or 'joinclass/' prefix
       cleaned = cleaned.replace(/^join-class\//i, "").replace(/^joinclass\//i, "");
-
-      // If anything after cleaning still contains '/', it's malformed
       if (cleaned.includes("/")) {
         Swal.fire({
           icon: "error",
@@ -151,7 +169,6 @@ export default function useStudentSchedules() {
         });
         return;
       }
-
       const classId = cleaned;
       if (!classId) {
         Swal.fire({
@@ -163,7 +180,7 @@ export default function useStudentSchedules() {
         return;
       }
 
-      // 2. Ensure student has profile picture
+      // Profile picture check
       const studentDoc = await getDoc(doc(db, "students", studentId));
       if (!studentDoc.exists()) {
         Swal.fire({
@@ -174,7 +191,6 @@ export default function useStudentSchedules() {
         });
         return;
       }
-
       const studentData = studentDoc.data() || {};
       const hasProfilePic =
         !!studentData.profilePicBinary || !!studentData.profilePicUrl;
@@ -198,7 +214,6 @@ export default function useStudentSchedules() {
         return;
       }
 
-      // 3. Make request
       const res = await axios.post("http://localhost:3000/student/join-class", {
         studentId,
         classId,
@@ -208,26 +223,35 @@ export default function useStudentSchedules() {
         Swal.fire({
           icon: "success",
           title: "Class Joined!",
-            text: "You have successfully joined the class.",
+          text: "You have successfully joined the class.",
           confirmButtonColor: "#3498db",
         });
 
-        let fullClass = res.data.class;
-        if (!fullClass?.subjectName) {
-          const snap = await getDoc(doc(db, "classes", classId));
-          if (snap.exists()) {
-            fullClass = { id: snap.id, ...snap.data() };
+        // try to get full class doc directly from Firestore (ensures time_start/time_end).
+        let fullClass = null;
+        const snap = await getDoc(doc(db, "classes", classId));
+        if (snap.exists()) {
+          fullClass = normalizeClassDoc(snap);
+        } else if (res.data.class) {
+          // fallback to server returned object (normalize legacy)
+          const c = res.data.class;
+          let { time_start, time_end } = c;
+          if ((!time_start || !time_end) && c.time) {
+            const [a, b] = String(c.time).split(" - ").map((s) => s?.trim());
+            time_start = time_start || a || "";
+            time_end = time_end || b || "";
           }
+          fullClass = { ...c, time_start: time_start || "", time_end: time_end || "", id: c.id || classId };
         }
 
-        setClasses((prev) => {
-          // Prevent duplicate if join pressed twice quickly
-          if (prev.some((c) => c.id === classId)) return prev;
-          return [...prev, fullClass];
-        });
-
-        if (fullClass?.gradeLevel && fullClass.gradeLevel !== "N/A") {
-          setGradeLevel(fullClass.gradeLevel);
+        if (fullClass) {
+          setClasses((prev) => {
+            if (prev.some((c) => c.id === classId)) return prev;
+            return [...prev, fullClass];
+          });
+          if (fullClass?.gradeLevel && fullClass.gradeLevel !== "N/A") {
+            setGradeLevel(fullClass.gradeLevel);
+          }
         }
 
         setJoinLink("");
@@ -284,15 +308,16 @@ export default function useStudentSchedules() {
     }
   };
 
-  // Convert 24h to 12h helper (kept)
+  // 24h → 12h convert if needed
   const convertTo12Hour = (time24) => {
     if (!time24) return "";
     const [hour, minute] = time24.split(":");
+    if (minute === undefined) return time24; // already maybe "2:30 PM"
     const hourNum = parseInt(hour, 10);
     const ampm = hourNum >= 12 ? "PM" : "AM";
     const hour12 = hourNum % 12 || 12;
     return `${hour12}:${minute} ${ampm}`;
-    };
+  };
 
   return {
     joinLink,

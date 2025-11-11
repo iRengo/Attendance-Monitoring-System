@@ -21,7 +21,15 @@ export default function ProfilePictureSection({
   blinkDone,
   yawLeftDone,
   yawRightDone,
+  // NEW: wire liveness controls from your hook
+  startPipelines,
+  stopPipelines,
 }) {
+  const handleClose = () => {
+    try { stopPipelines && stopPipelines(); } catch {}
+    closeCamera();
+  };
+
   return (
     <div className="bg-white shadow-md rounded-xl p-8 border border-gray-200 flex flex-col items-center">
       <h2 className="text-xl font-semibold text-gray-800 mb-6">Profile Picture</h2>
@@ -29,10 +37,7 @@ export default function ProfilePictureSection({
         {!isCameraOpen && !capturedImage && (
           <>
             <img
-              src={
-                profilePic ||
-                "https://www.w3schools.com/howto/img_avatar.png"
-              }
+              src={profilePic || "https://www.w3schools.com/howto/img_avatar.png"}
               alt="Profile"
               className="w-32 h-32 rounded-full object-cover border-2 border-gray-300 mb-4"
             />
@@ -51,6 +56,7 @@ export default function ProfilePictureSection({
               webcamRef={webcamRef}
               videoConstraints={videoConstraints}
               onError={handleUserMediaError}
+              onStarted={(videoEl) => startPipelines && startPipelines(videoEl)} // NEW
               boxOverlay={boxOverlay}
               faceMessage={faceMessage}
               faceOk={faceOk}
@@ -73,7 +79,7 @@ export default function ProfilePictureSection({
                 Capture Photo
               </button>
               <button
-                onClick={closeCamera}
+                onClick={handleClose}
                 className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
               >
                 Cancel
@@ -91,7 +97,7 @@ export default function ProfilePictureSection({
             />
             <div className="flex gap-3">
               <button
-                onClick={retakePhoto}
+                onClick={() => { try { stopPipelines && stopPipelines(); } catch {}; retakePhoto(); }}
                 className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
               >
                 Retake
@@ -104,7 +110,7 @@ export default function ProfilePictureSection({
                 {uploading ? "Saving..." : "Save Photo"}
               </button>
               <button
-                onClick={closeCamera}
+                onClick={handleClose}
                 className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
               >
                 Close

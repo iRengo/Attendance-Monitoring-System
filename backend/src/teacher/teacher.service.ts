@@ -280,7 +280,8 @@ export class TeacherService {
     const section = (data.section ?? "").trim();
     const gradeLevel = (data.gradeLevel ?? "").toString().trim();
     const days = (data.days ?? "").trim();
-    const time = (data.time ?? "").trim();
+    const time_start = (data.time_start ?? "").trim();
+    const time_end = (data.time_end ?? "").trim();
     const teacherId = data.teacherId;
 
     const computedName = this.buildComputedName(
@@ -299,7 +300,8 @@ export class TeacherService {
       section,
       gradeLevel,
       days,
-      time,
+      time_start,
+      time_end,
       createdAt: data.createdAt ?? now,
       updatedAt: now,
     };
@@ -313,7 +315,8 @@ export class TeacherService {
       roomId,
       section,
       days,
-      time,
+      time_start,
+      time_end,
       gradeLevel,
     } = data;
 
@@ -325,11 +328,12 @@ export class TeacherService {
       !effectiveRoomNumber ||
       !section ||
       !days ||
-      !time ||
+      !time_start ||
+      !time_end ||
       !gradeLevel
     ) {
       throw new BadRequestException(
-        "All fields are required including grade level."
+        "All fields are required including grade level and time_start/time_end."
       );
     }
 
@@ -344,9 +348,14 @@ export class TeacherService {
 
     await classRef.set(classDoc);
 
+    // Remove legacy fields if any were previously set
     await classRef.update({
       subject: FieldValue.delete(),
       roomId: FieldValue.delete(),
+      time: FieldValue.delete(),
+      schedule: FieldValue.delete(),
+      startTime: FieldValue.delete(),
+      endTime: FieldValue.delete(),
     });
 
     const teacherRef = this.db.collection("teachers").doc(teacherId);
@@ -415,13 +424,16 @@ export class TeacherService {
     await classRef.update({
       ...updated,
       updatedAt: new Date().toISOString(),
+      // remove legacy fields
       subject: FieldValue.delete(),
       schedule: FieldValue.delete(),
       startTime: FieldValue.delete(),
       endTime: FieldValue.delete(),
       roomId: FieldValue.delete(),
+      time: FieldValue.delete(),
     });
 
+    // Maintain teacher subjects set
     const teacherRef = this.db.collection("teachers").doc(teacherId);
     await teacherRef.set(
       {
@@ -444,6 +456,7 @@ export class TeacherService {
       }
     }
 
+    // Normalize embedded classes for students (object-form variant)
     const studentsSnapshot = await classRef.collection("students").get();
     for (const studentDoc of studentsSnapshot.docs) {
       const studentId = studentDoc.id;
@@ -468,7 +481,8 @@ export class TeacherService {
                 section: updated.section,
                 gradeLevel: updated.gradeLevel,
                 days: updated.days,
-                time: updated.time,
+                time_start: updated.time_start,
+                time_end: updated.time_end,
               }
             : c
         );

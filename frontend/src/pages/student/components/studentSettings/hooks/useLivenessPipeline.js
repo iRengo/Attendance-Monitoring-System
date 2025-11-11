@@ -3,6 +3,12 @@ import { FaceDetection } from "@mediapipe/face_detection";
 import { FaceMesh } from "@mediapipe/face_mesh";
 import { Camera } from "@mediapipe/camera_utils";
 
+/**
+ * useLivenessPipeline
+ * - Adds robust start guard (wait for video readiness) to prevent first-time camera crash.
+ * - Prevents double start with startedRef.
+ * - Properly stops MediaPipe camera and clears refs.
+ */
 export default function useLivenessPipeline() {
   const [faceOk, setFaceOk] = useState(false);
   const [faceMessage, setFaceMessage] = useState("Point your face to the camera");
@@ -15,6 +21,7 @@ export default function useLivenessPipeline() {
   const [yawRightDone, setYawRightDone] = useState(false);
   const canCapture = faceOk && !spoofSuspected && blinkDone && yawLeftDone && yawRightDone;
 
+  // Refs
   const fdRef = useRef(null);
   const fmRef = useRef(null);
   const camRef = useRef(null);
@@ -25,6 +32,7 @@ export default function useLivenessPipeline() {
   const closedFramesRef = useRef(0);
   const openingFramesRef = useRef(0);
   const faceLostRef = useRef(false);
+  const startedRef = useRef(false); // guard against double start
 
   const resetLivenessProgress = useCallback(() => {
     setBlinkDone(false);
@@ -44,6 +52,7 @@ export default function useLivenessPipeline() {
     camRef.current = null;
     fdRef.current = null;
     fmRef.current = null;
+    startedRef.current = false;
     setFaceOk(false);
     setSpoofSuspected(false);
     setMultipleFaces(false);
@@ -71,6 +80,7 @@ export default function useLivenessPipeline() {
         setSpoofSuspected(false);
         return;
       }
+
       setMultipleFaces(dets.length > 1);
       if (dets.length > 1) {
         faceLostRef.current = true;
@@ -80,6 +90,7 @@ export default function useLivenessPipeline() {
         setSpoofSuspected(false);
         return;
       }
+
       const d = dets[0];
       let box = null;
       const bb = d?.boundingBox;
@@ -91,6 +102,7 @@ export default function useLivenessPipeline() {
         const r = d.locationData.relativeBoundingBox;
         box = { x: r.xMin, y: r.yMin, w: r.width, h: r.height };
       }
+
       if (!box) {
         faceLostRef.current = true;
         setFaceOk(false);
@@ -98,7 +110,10 @@ export default function useLivenessPipeline() {
         setBoxOverlay(null);
         return;
       }
+
       setBoxOverlay(box);
+
+      // Size / distance heuristics
       const area = box.w * box.h;
       if (area < 0.1) {
         faceLostRef.current = true;
@@ -109,6 +124,8 @@ export default function useLivenessPipeline() {
         setSpoofSuspected(false);
         return;
       }
+
+      // Spoof heuristic (no motion)
       let spoof = false;
       if (lastBoxRef.current) {
         const prev = lastBoxRef.current;
@@ -129,10 +146,12 @@ export default function useLivenessPipeline() {
         setFaceMessage("Please move your head slightly");
         return;
       }
+
       if (faceLostRef.current) {
         resetLivenessProgress();
         faceLostRef.current = false;
       }
+
       setFaceOk(true);
       setFaceMessage(
         `Liveness: ${blinkDone ? "Blink ✓" : "Blink"} · ${yawLeftDone ? "Left ✓" : "Left"} · ${yawRightDone ? "Right ✓" : "Right"}`
@@ -145,7 +164,10 @@ export default function useLivenessPipeline() {
     (results) => {
       const faces = results?.multiFaceLandmarks || [];
       if (!faces.length) return;
+
       const lm = faces[0];
+
+      // Eye Aspect Ratio for blink
       const L = [33, 159, 158, 133, 153, 144];
       const R = [362, 386, 385, 263, 373, 374];
       const left = L.map((i) => lm[i]);
@@ -159,10 +181,11 @@ export default function useLivenessPipeline() {
       };
       const EAR = (earEye(left) + earEye(right)) / 2;
       const EAR_CLOSED = 0.2;
+
       if (!blinkDone) {
         if (blinkPhaseRef.current === "idle" && EAR < EAR_CLOSED) {
-          blinkPhaseRef.current = "closed";
-          closedFramesRef.current = 1;
+            blinkPhaseRef.current = "closed";
+            closedFramesRef.current = 1;
         } else if (blinkPhaseRef.current === "closed") {
           if (EAR < EAR_CLOSED) closedFramesRef.current++;
           else {
@@ -179,6 +202,8 @@ export default function useLivenessPipeline() {
           }
         }
       }
+
+      // Yaw detection (nose vs mid eye line)
       const NOSE = lm[1];
       const ELO = lm[33];
       const ERO = lm[263];
@@ -187,6 +212,7 @@ export default function useLivenessPipeline() {
       const YAW_THRESH = 0.02;
       if (!yawLeftDone && yawMetric < -YAW_THRESH) setYawLeftDone(true);
       if (!yawRightDone && yawMetric > YAW_THRESH) setYawRightDone(true);
+
       if (faceOk) {
         setFaceMessage(
           `Liveness: ${blinkDone ? "Blink ✓" : "Blink"} · ${yawLeftDone ? "Left ✓" : "Left"} · ${yawRightDone ? "Right ✓" : "Right"}`
@@ -196,59 +222,94 @@ export default function useLivenessPipeline() {
     [blinkDone, yawLeftDone, yawRightDone, faceOk]
   );
 
-  const startPipelines = useCallback((videoEl) => {
-    if (!videoEl) return;
-    const detector = new FaceDetection({
-      locateFile: (file) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
-    });
-    detector.setOptions({ model: "short", minDetectionConfidence: 0.6 });
-    detector.onResults(onFaceResults);
-    fdRef.current = detector;
+  // Wait until video element is actually ready
+  async function waitForVideoReady(videoEl, tries = 25, delayMs = 120) {
+    for (let i = 0; i < tries; i++) {
+      const ready =
+        videoEl.readyState >= 2 &&
+        videoEl.videoWidth > 0 &&
+        videoEl.videoHeight > 0;
+      if (ready) return true;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return false;
+  }
 
-    const mesh = new FaceMesh({
-      locateFile: (file) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-    });
-    mesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-    mesh.onResults(onMeshResults);
-    fmRef.current = mesh;
+  const startPipelines = useCallback(
+    async (videoEl) => {
+      if (!videoEl) return;
+      if (startedRef.current) return; // already running
+      startedRef.current = true;
 
-    const cam = new Camera(videoEl, {
-      onFrame: async () => {
-        if (runningRef.current) return;
-        runningRef.current = true;
-        try {
-          await fdRef.current?.send({ image: videoEl });
-          await fmRef.current?.send({ image: videoEl });
-        } catch (_) {
-        } finally {
-          runningRef.current = false;
-        }
-      },
-      width: 640,
-      height: 640,
-    });
+      const ok = await waitForVideoReady(videoEl);
+      if (!ok) {
+        startedRef.current = false;
+        setFaceMessage("Camera not ready. Please retry.");
+        return;
+      }
 
-    stillFramesRef.current = 0;
-    lastBoxRef.current = null;
-    faceLostRef.current = true;
-    setFaceOk(false);
-    setSpoofSuspected(false);
-    setMultipleFaces(false);
-    setFaceMessage("Detecting face...");
-    resetLivenessProgress();
-    cam.start();
-    camRef.current = cam;
-  }, [onFaceResults, onMeshResults, resetLivenessProgress]);
+      // Face Detection
+      const detector = new FaceDetection({
+        locateFile: (file) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
+      });
+      detector.setOptions({ model: "short", minDetectionConfidence: 0.6 });
+      detector.onResults(onFaceResults);
+      fdRef.current = detector;
+
+      // Face Mesh
+      const mesh = new FaceMesh({
+        locateFile: (file) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+      });
+      mesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+      mesh.onResults(onMeshResults);
+      fmRef.current = mesh;
+
+      // Camera wrapper
+      const cam = new Camera(videoEl, {
+        onFrame: async () => {
+          if (runningRef.current) return;
+            runningRef.current = true;
+          try {
+            await fdRef.current?.send({ image: videoEl });
+            await fmRef.current?.send({ image: videoEl });
+          } catch (_) {
+          } finally {
+            runningRef.current = false;
+          }
+        },
+        width: 640,
+        height: 640,
+      });
+
+      // Reset
+      stillFramesRef.current = 0;
+      lastBoxRef.current = null;
+      faceLostRef.current = true;
+      setFaceOk(false);
+      setSpoofSuspected(false);
+      setMultipleFaces(false);
+      setFaceMessage("Detecting face...");
+      resetLivenessProgress();
+
+      try {
+        await cam.start();
+        camRef.current = cam;
+      } catch (e) {
+        startedRef.current = false;
+        setFaceMessage("Failed to start camera");
+      }
+    },
+    [onFaceResults, onMeshResults, resetLivenessProgress]
+  );
 
   return {
-    // states
     faceOk,
     faceMessage,
     multipleFaces,
@@ -258,7 +319,6 @@ export default function useLivenessPipeline() {
     yawLeftDone,
     yawRightDone,
     canCapture,
-    // controls
     startPipelines,
     stopPipelines,
     resetLivenessProgress,

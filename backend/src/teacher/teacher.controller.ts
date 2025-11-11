@@ -28,7 +28,8 @@ export class TeacherController {
       roomId, // legacy optional
       section,
       days,
-      time,
+      time_start,
+      time_end,
       gradeLevel,
     } = body;
     const effectiveRoom = (roomNumber || roomId || "").trim();
@@ -38,13 +39,17 @@ export class TeacherController {
       !effectiveRoom ||
       !section ||
       !days ||
-      !time ||
+      !time_start ||
+      !time_end ||
       !gradeLevel
     )
       throw new BadRequestException(
-        "All fields are required including grade level."
+        "All fields are required including grade level and time_start/time_end."
       );
-    return await this.teacherService.addClass(body);
+    return await this.teacherService.addClass({
+      ...body,
+      roomNumber: effectiveRoom,
+    });
   }
 
   @Get("classes")
@@ -62,7 +67,8 @@ export class TeacherController {
       roomId,
       section,
       days,
-      time,
+      time_start,
+      time_end,
       gradeLevel,
     } = body;
     const effectiveRoom = (roomNumber || roomId || "").trim();
@@ -72,11 +78,12 @@ export class TeacherController {
       !effectiveRoom ||
       !section ||
       !days ||
-      !time ||
+      !time_start ||
+      !time_end ||
       !gradeLevel
     )
       throw new BadRequestException(
-        "All fields are required including grade level."
+        "All fields are required including grade level and time_start/time_end."
       );
     return await this.teacherService.updateClass(teacherId, classId, {
       ...body,

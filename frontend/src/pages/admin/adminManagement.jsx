@@ -47,7 +47,6 @@ export default function UserManagement() {
     guardianname: "",
     guardiancontact: "",
     gradelevel: "",
-    section: "",
   };
 
   const normalizeKeys = (data) => {
@@ -187,7 +186,6 @@ export default function UserManagement() {
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
           if (latestClass) {
             normalized.gradelevel = latestClass.gradeLevel || normalized.gradelevel || "N/A";
-            normalized.section = latestClass.section || "—";
           }
         }
         setEditUser(null);
@@ -306,7 +304,6 @@ export default function UserManagement() {
       "middlename",
       "lastname",
       "gradelevel",
-      "section",
       "guardianname",
       "guardiancontact",
     ],

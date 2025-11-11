@@ -11,10 +11,21 @@ export default function AddStudentModal({
 }) {
   if (!user) return null;
 
+  // Normalize studentId casing before saving
+  const handleSave = () => {
+    const normalized = { ...user };
+    if (normalized.studentid && !normalized.studentId) {
+      normalized.studentId = normalized.studentid;
+    }
+    delete normalized.studentid;
+    onSave(normalized);
+  };
+
   const fields = [
     { key: "firstname", label: "First name", required: true },
     { key: "middlename", label: "Middle name" },
     { key: "lastname", label: "Last name", required: true },
+    { key: "studentId", label: "Student ID", required: true }, // ensure camelCase
     { key: "personal_email", label: "Personal email", required: true },
     { key: "guardianname", label: "Guardian name" },
     { key: "guardiancontact", label: "Guardian contact" },
@@ -91,8 +102,18 @@ export default function AddStudentModal({
                 <input
                   type={isEmail ? "email" : "text"}
                   placeholder={f.label}
-                  value={user[f.key] || ""}
-                  onChange={(e) => onChange({ ...user, [f.key]: e.target.value })}
+                  value={
+                    f.key === "studentId"
+                      ? (user.studentId ?? user.studentid ?? "")
+                      : (user[f.key] || "")
+                  }
+                  onChange={(e) => {
+                    if (f.key === "studentId") {
+                      onChange({ ...user, studentId: e.target.value });
+                    } else {
+                      onChange({ ...user, [f.key]: e.target.value });
+                    }
+                  }}
                   className="w-full border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
                 />
               </div>
@@ -111,7 +132,7 @@ export default function AddStudentModal({
             className={`bg-blue-600 text-white px-5 py-2 rounded-xl shadow-md hover:bg-blue-700 font-semibold ${
               creating ? "opacity-50 cursor-not-allowed" : ""
             }`}
-            onClick={onSave}
+            onClick={handleSave}
             disabled={creating}
           >
             {creating ? "Creating..." : "Create"}

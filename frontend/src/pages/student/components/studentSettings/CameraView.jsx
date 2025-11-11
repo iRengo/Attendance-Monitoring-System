@@ -5,6 +5,7 @@ export default function CameraView({
   webcamRef,
   videoConstraints,
   onError,
+  onStarted, // notify parent when media is ready, pass video element
   boxOverlay,
   faceMessage,
   faceOk,
@@ -21,6 +22,11 @@ export default function CameraView({
         videoConstraints={videoConstraints}
         className="w-64 h-64 object-cover"
         onUserMediaError={onError}
+        onUserMedia={() => {
+          const videoEl = webcamRef?.current?.video || null;
+          // slight delay helps some browsers finish layout/dimensions
+          if (onStarted && videoEl) setTimeout(() => onStarted(videoEl), 0);
+        }}
       />
       <LivenessBadge
         faceMessage={faceMessage}

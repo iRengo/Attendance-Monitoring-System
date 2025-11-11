@@ -4,11 +4,17 @@ import PreviewModal from "../PreviewModal";
 
 /**
  * ClassDetail
- * Props: selectedClass, posts, teachers, onBack
- * Renders the selected class header and posts using the same design/preview logic as teacher side.
+ * Updated to show new time_start/time_end (fallback to legacy time).
  */
 export default function ClassDetail({ selectedClass, posts, teachers, onBack }) {
   const [preview, setPreview] = useState(null);
+
+  const displayTime =
+    (selectedClass.time_start &&
+      selectedClass.time_end &&
+      `${selectedClass.time_start} - ${selectedClass.time_end}`) ||
+    selectedClass.time ||
+    "-";
 
   return (
     <div className="min-h-screen bg-gray-50 p-10">
@@ -18,13 +24,15 @@ export default function ClassDetail({ selectedClass, posts, teachers, onBack }) 
             {selectedClass.subjectName} - {selectedClass.section}
           </h1>
           <p className="text-gray-500 text-sm">
-            {selectedClass.days} | {selectedClass.time} | {selectedClass.roomNumber}
+            {selectedClass.days} | {displayTime} | {selectedClass.roomNumber}
           </p>
+            <p className="text-gray-600 text-sm">
+              <strong>Grade Level:</strong>{" "}
+              {selectedClass.gradeLevel || "N/A"}
+            </p>
           <p className="text-gray-600 text-sm">
-            <strong>Grade Level:</strong> {selectedClass.gradeLevel || "N/A"}
-          </p>
-          <p className="text-gray-600 text-sm">
-            <strong>Teacher:</strong> {teachers[selectedClass.teacherId] || "Loading..."}
+            <strong>Teacher:</strong>{" "}
+            {teachers[selectedClass.teacherId] || "Loading..."}
           </p>
         </div>
         <button

@@ -3,6 +3,22 @@ import axios from "axios";
 import { convertTo12Hour } from "../../utils/time";
 import Swal from "sweetalert2";
 
+function convertTo24Hour(time12h) {
+  if (!time12h) return "";
+  const t = String(time12h).trim();
+  // Already 24h "HH:MM"
+  if (/^\d{2}:\d{2}$/.test(t)) return t;
+  // Try to parse formats like "2:05 PM", "02:05 pm"
+  const m = t.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+  if (!m) return t; // fallback
+  let [_, hh, mm, ap] = m;
+  let h = parseInt(hh, 10);
+  const isPM = ap.toLowerCase() === "pm";
+  if (isPM && h < 12) h += 12;
+  if (!isPM && h === 12) h = 0;
+  return `${String(h).padStart(2, "0")}:${mm}`;
+}
+
 export default function useClasses(teacherId) {
   const [classes, setClasses] = useState([]);
   const [studentCounts, setStudentCounts] = useState({});
@@ -30,7 +46,7 @@ export default function useClasses(teacherId) {
         });
         if (res.data.success) {
           const cleaned = (res.data.classes || []).map(cls => {
-            // Remove any lingering roomId field if backend hasn't fully pruned yet
+            // prune legacy fields if present
             const { roomId, ...rest } = cls;
             return rest;
           });
@@ -81,11 +97,10 @@ export default function useClasses(teacherId) {
       return;
     }
 
+    // Store as 12-hour strings for human readability (same as previous combined field)
     const startTime12 = convertTo12Hour(classForm.startTime);
     const endTime12 = convertTo12Hour(classForm.endTime);
-    const fullTime = `${startTime12} - ${endTime12}`;
     const daysString = classForm.days.join(", ");
-
     const computedName = `${classForm.subject} ${classForm.section}-${classForm.gradeLevel}`.trim();
 
     setLoading(true);
@@ -101,7 +116,8 @@ export default function useClasses(teacherId) {
             section: classForm.section,
             gradeLevel: classForm.gradeLevel,
             days: daysString,
-            time: fullTime,
+            time_start: startTime12,
+            time_end: endTime12,
             name: computedName,
           }
         );
@@ -119,7 +135,8 @@ export default function useClasses(teacherId) {
                     section: classForm.section,
                     gradeLevel: classForm.gradeLevel,
                     days: daysString,
-                    time: fullTime,
+                    time_start: startTime12,
+                    time_end: endTime12,
                   }
                 : cls
             )
@@ -140,7 +157,8 @@ export default function useClasses(teacherId) {
           section: classForm.section,
           gradeLevel: classForm.gradeLevel,
           days: daysString,
-          time: fullTime,
+          time_start: startTime12,
+          time_end: endTime12,
           name: computedName,
         });
 
@@ -156,7 +174,8 @@ export default function useClasses(teacherId) {
               section: classForm.section,
               gradeLevel: classForm.gradeLevel,
               days: daysString,
-              time: fullTime,
+              time_start: startTime12,
+              time_end: endTime12,
             },
           ]);
           await Swal.fire({
@@ -229,10 +248,15 @@ export default function useClasses(teacherId) {
   };
 
   const handleEditClass = (cls) => {
-    const [start, end] = (cls.time || "").split(" - ").map((t) => {
-      const [h = "", m = ""] = t.split(":");
-      return h.length === 1 ? `0${h}:${m}` : `${h}:${m}`;
-    });
+    // Prefer new fields; fall back to legacy combined 'time'
+    let start12 = cls.time_start || "";
+    let end12 = cls.time_end || "";
+
+    if ((!start12 || !end12) && cls.time) {
+      const [a, b] = String(cls.time).split(" - ").map(s => s?.trim());
+      start12 = start12 || a || "";
+      end12 = end12 || b || "";
+    }
 
     setClassForm({
       id: cls.id,
@@ -241,33 +265,31 @@ export default function useClasses(teacherId) {
       section: cls.section || "",
       gradeLevel: cls.gradeLevel || "",
       days: (cls.days || "").split(", ").filter(Boolean),
-      startTime: start || "",
-      endTime: end || "",
+      startTime: convertTo24Hour(start12),
+      endTime: convertTo24Hour(end12),
     });
 
     setIsEditMode(true);
     setShowModal(true);
   };
 
-  // replace your current handleCopyLink with this
-const handleCopyLink = async (classId) => {
-  // NOTE: using join-class (with hyphen) to match your route.
-  // If you truly want "joinclass" (no hyphen), change it below.
-  const link = `join-class/${classId}`;
-  try {
-    await navigator.clipboard.writeText(link);
-    await Swal.fire({
-      icon: "success",
-      title: "Copied",
-      text: "Class link copied!",
-      timer: 1200,
-      showConfirmButton: false,
-    });
-  } catch (err) {
-    console.error("Error copying link:", err);
-    await Swal.fire({ icon: "error", title: "Error", text: "Failed to copy link." });
-  }
-};
+  const handleCopyLink = async (classId) => {
+    const link = `join-class/${classId}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      await Swal.fire({
+        icon: "success",
+        title: "Copied",
+        text: "Class link copied!",
+        timer: 1200,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error("Error copying link:", err);
+      await Swal.fire({ icon: "error", title: "Error", text: "Failed to copy link." });
+    }
+  };
+
   return {
     classes,
     studentCounts,
