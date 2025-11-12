@@ -23,6 +23,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [announcements, setAnnouncements] = useState([]);
+  const [showPassword, setShowPassword] = useState(false);
 
   const navigate = useNavigate();
 
@@ -225,15 +226,66 @@ const handleLogin = async (e) => {
                       className="text-[#5F75AF] placeholder-[#5F75AF]"
                     />
 
-                    <InputField
-                      label="Password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="text-[#5F75AF] placeholder-[#5F75AF]"
-                    />
+              <div className="relative">
+                <InputField
+                  label="Password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  className="text-[#5F75AF] placeholder-[#5F75AF]"
+                />
 
+                {/* 👁 Simple eye icon toggle (no external library) */}
+                <span
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-9 cursor-pointer text-[#5F75AF]"
+                >
+                  {showPassword ? (
+                    // 👁 Eye-slash icon
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth="1.5"
+                      stroke="currentColor"
+                      className="w-5 h-5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 15.937 7.24 19.5 12 19.5c1.563 0 3.06-.34 4.417-.95M9.88 9.88a3 3 0 104.24 4.24"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 15l5.25 5.25M4.5 4.5l15 15"
+                      />
+                    </svg>
+                  ) : (
+                    // 👁 Regular eye icon
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth="1.5"
+                      stroke="currentColor"
+                      className="w-5 h-5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.272 4.5 12 4.5c4.728 0 8.577 3.01 9.964 7.183a1.012 1.012 0 010 .639C20.577 16.49 16.728 19.5 12 19.5c-4.728 0-8.577-3.01-9.964-7.178z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                  )}
+                </span>
+              </div>
                     <div className="flex justify-center">
                       <ReCAPTCHA
                         sitekey="6LdzQNErAAAAAKIH3fsDMMAszSHEjjzWrhFwNVg9"

@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../../../../firebase";
 
 const SECTION_OPTIONS = ["BM1MA", "HU1MA", "HU2AA", "IC1MA", "IC2AA"];
 
@@ -14,6 +16,34 @@ export default function ClassModal({
   isEditMode,
   loading,
 }) {
+  const [rooms, setRooms] = useState([]);
+
+  useEffect(() => {
+    const fetchRooms = async () => {
+      try {
+        const roomDocRef = doc(db, "rooms", "roomlist"); // your document name
+        const roomSnap = await getDoc(roomDocRef);
+
+        if (roomSnap.exists()) {
+          const data = roomSnap.data();
+          if (Array.isArray(data.roomlisted)) {
+            setRooms(data.roomlisted);
+          } else {
+            console.warn("roomlisted is not an array");
+            setRooms([]);
+          }
+        } else {
+          console.warn("No roomlist document found");
+          setRooms([]);
+        }
+      } catch (error) {
+        console.error("Error fetching rooms:", error);
+      }
+    };
+
+    fetchRooms();
+  }, []);
+
   if (!showModal) return null;
 
   const resolvedSectionOptions =
@@ -24,17 +54,20 @@ export default function ClassModal({
   return (
     <div className="fixed inset-0 flex items-center justify-center text-gray-800 bg-black/40 backdrop-blur-sm z-50">
       <div className="bg-white rounded-2xl shadow-xl w-11/12 max-w-md p-8 relative">
+        {/* Close button */}
         <button
           onClick={() => setShowModal(false)}
           className="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition"
         >
           <X size={22} />
         </button>
+
         <h2 className="text-xl font-semibold text-[#3498db] mb-6">
           {isEditMode ? "Edit Class" : "Add New Class"}
         </h2>
 
         <div className="space-y-4">
+          {/* Subject Input */}
           <input
             type="text"
             placeholder="Subject"
@@ -44,16 +77,24 @@ export default function ClassModal({
             }
             className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
           />
-          <input
-            type="text"
-            placeholder="Room Number"
+
+          {/* Room Dropdown */}
+          <select
             value={classForm.room}
             onChange={(e) =>
               setClassForm({ ...classForm, room: e.target.value })
             }
-            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
-          />
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-[#3498db] outline-none"
+          >
+            <option value="">Select Room</option>
+            {rooms.map((room) => (
+              <option key={room} value={room}>
+                {room}
+              </option>
+            ))}
+          </select>
 
+          {/* Section Dropdown */}
           <select
             value={classForm.section}
             onChange={(e) =>
@@ -69,6 +110,7 @@ export default function ClassModal({
             ))}
           </select>
 
+          {/* Grade Level */}
           <select
             value={classForm.gradeLevel}
             onChange={(e) =>
@@ -81,6 +123,7 @@ export default function ClassModal({
             <option value="12">Grade 12</option>
           </select>
 
+          {/* Days Dropdown */}
           <div className="relative">
             <button
               onClick={() => setShowDaysDropdown((prev) => !prev)}
@@ -130,6 +173,7 @@ export default function ClassModal({
             )}
           </div>
 
+          {/* Time Inputs */}
           <div className="flex gap-4">
             <input
               type="time"
@@ -149,6 +193,7 @@ export default function ClassModal({
             />
           </div>
 
+          {/* Save Button */}
           <button
             onClick={handleSaveClass}
             disabled={loading}

@@ -7,6 +7,7 @@ import Tabs from "./components/studentSettings/Tabs";
 import AccountInfo from "./components/studentSettings/AccountInfo";
 import ChangePassword from "./components/studentSettings/ChangePassword";
 import ProfilePictureSection from "./components/studentSettings/ProfilePictureSection";
+import ProfileInfo from "./components/studentSettings/ProfileInfo";
 
 export default function StudentSettings() {
   const {
@@ -103,20 +104,7 @@ export default function StudentSettings() {
 
       {activeTab === "profile" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-white shadow-md rounded-xl p-8 border border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-800 mb-6">Profile Info</h2>
-            <p className="text-gray-700 text-sm">Customize your profile details here (coming soon).</p>
-            {multipleFaces && (
-              <p className="mt-4 text-sm text-red-600">
-                Multiple faces detected — only one person should be in frame.
-              </p>
-            )}
-            {spoofSuspected && (
-              <p className="mt-1 text-sm text-yellow-700">
-                Please move slightly to prove liveness (anti-spoof triggered).
-              </p>
-            )}
-          </div>
+          <ProfileInfo studentData={studentData} loading={loading} />
 
           <ProfilePictureSection
             profilePic={studentData.profilePic}

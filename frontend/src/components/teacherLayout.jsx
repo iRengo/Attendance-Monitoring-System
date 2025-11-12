@@ -13,17 +13,8 @@ import {
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, onSnapshot } from "firebase/firestore";
 
-/**
- * TeacherLayout
- * Restores original design while adding a temp password banner.
- * Changes from previous damaged version:
- *  - Removed manual inline margin-left adjustments for banner and content.
- *  - Banner is rendered INSIDE the scrollable content area beneath the fixed top navbar.
- *  - No layout shift: sidebar width logic stays the same, top navbar positioning untouched.
- *  - Uses padding-top via mt-16 (height of navbar) for content; banner sits at top of content stack.
- */
 export default function TeacherLayout({ title, children }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -31,8 +22,9 @@ export default function TeacherLayout({ title, children }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [teacher, setTeacher] = useState(null);
+  const [hasUnreadAnnouncements, setHasUnreadAnnouncements] = useState(false);
 
-  // Derived: show banner if temp_password is a non-empty string
+  // Show banner if temp_password exists
   const isTempPassword = useMemo(
     () =>
       typeof teacher?.temp_password === "string" &&
@@ -51,6 +43,7 @@ export default function TeacherLayout({ title, children }) {
 
   const pathnames = location.pathname.split("/").filter(Boolean);
 
+  // Load teacher data
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (!user) {
@@ -60,13 +53,32 @@ export default function TeacherLayout({ title, children }) {
       try {
         const teacherRef = doc(db, "teachers", user.uid);
         const snap = await getDoc(teacherRef);
-        if (snap.exists()) setTeacher(snap.data());
+        if (snap.exists()) setTeacher({ ...snap.data(), uid: user.uid });
       } catch (e) {
         console.error("Failed to load teacher data:", e);
       }
     });
     return () => unsubscribe();
   }, []);
+
+  // Listen for unread announcements
+  useEffect(() => {
+    if (!teacher?.uid) return;
+
+    const unsub = onSnapshot(collection(db, "announcements"), (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const now = new Date();
+      const filtered = data.filter(
+        (a) =>
+          (a.target === "teachers" || a.target === "all") &&
+          new Date(a.expiration) >= now
+      );
+      const unread = filtered.some((a) => !a.readBy?.includes(teacher.uid));
+      setHasUnreadAnnouncements(unread);
+    });
+
+    return () => unsub();
+  }, [teacher?.uid]);
 
   const handleLogout = async () => {
     try {
@@ -129,7 +141,14 @@ export default function TeacherLayout({ title, children }) {
                   : "text-white hover:bg-[#32487E] hover:text-white"
               }`}
             >
-              <span className="text-white">{item.icon}</span>
+              <span className="text-white relative">
+                {item.icon}
+                {item.name === "Announcements" && hasUnreadAnnouncements && (
+                  <span className="absolute -top-1 -right-2 bg-red-500 text-white text-xs font-bold px-1 rounded-full">
+                    1
+                  </span>
+                )}
+              </span>
               {!isCollapsed && (
                 <span className="text-white text-lg">{item.name}</span>
               )}
@@ -155,18 +174,6 @@ export default function TeacherLayout({ title, children }) {
           <h2 className="text-lg font-bold text-[#415CA0] truncate">{title}</h2>
 
           <div className="flex items-center gap-6">
-            {/* Notifications */}
-            <div className="relative">
-              <button
-                className="p-2 rounded-full hover:bg-gray-100 transition"
-                onClick={() => console.log("Open notifications")}
-              >
-                <Bell size={22} className="text-[#415CA0]" />
-              </button>
-              <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full px-1">
-                3
-              </span>
-            </div>
 
             {/* Profile dropdown */}
             <div className="relative">
@@ -214,9 +221,9 @@ export default function TeacherLayout({ title, children }) {
           </div>
         </div>
 
-        {/* Scrollable content area with top spacing equal to navbar height */}
+        {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto bg-gray-50 mt-16 p-6">
-          {/* Temp password banner (inside content; no layout shift of navbar/sidebar) */}
+          {/* Temp password banner */}
           {isTempPassword && (
             <div className="mb-4 rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
               Your account is using a temporary password. Please update your password to secure your account.

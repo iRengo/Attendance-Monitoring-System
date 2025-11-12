@@ -29,6 +29,12 @@ export default function useStudentProfile() {
             firstname: data.firstname || "",
             middlename: data.middlename || "",
             lastname: data.lastname || "",
+            studentId: data.studentId?.toString() || "", // convert number to string
+            section: data.section || "",
+            gradelevel: data.gradelevel || "",
+            personal_email: data.personal_email || "",
+            guardianname: data.guardianname || "",
+            guardiancontact: data.guardiancontact || "",
             school_email: data.school_email || data.email || "",
             profilePic: data.profilePicUrl || "",
           });

@@ -11,6 +11,8 @@ import {
 import { db } from "../../firebase";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import Swal from "sweetalert2";
+import "sweetalert2/dist/sweetalert2.min.css";
 import { logActivity } from "../../utils/logActivity";
 
 import CSVImport from "./components/adminManagement/CSVImport";
@@ -247,17 +249,30 @@ export default function UserManagement() {
     }
   };
 
-  const handleDelete = async (user) => {
-    if (!confirm(`Delete ${user.name}?`)) return;
-    try {
-      const ref = doc(db, user.role.toLowerCase() + "s", user.id);
-      await deleteDoc(ref);
-      await logActivity(`Deleted ${user.role}: ${user.name}`, "Admin");
-      toast.success("User deleted successfully!");
-      fetchAllAccounts();
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to delete user.");
+   // ✅ Updated delete function with SweetAlert2
+   const handleDelete = async (user) => {
+    const result = await Swal.fire({
+      title: `Delete ${user.name}?`,
+      text: `Are you sure you want to permanently delete this ${user.role} account?`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+      confirmButtonText: "Yes, delete it!",
+      cancelButtonText: "Cancel",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const ref = doc(db, user.role.toLowerCase() + "s", user.id);
+        await deleteDoc(ref);
+        await logActivity(`Deleted ${user.role}: ${user.name}`, "Admin");
+        toast.success("User deleted successfully!");
+        fetchAllAccounts();
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to delete user.");
+      }
     }
   };
 

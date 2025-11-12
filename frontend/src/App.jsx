@@ -26,6 +26,7 @@ import AdminAttendance from "./pages/admin/adminAttendance";
 import AdminManagement from "./pages/admin/adminManagement";
 import AdminReports from "./pages/admin/adminReports";
 import AdminSettings from "./pages/admin/adminSettings";
+import AdminRoom from "./pages/admin/adminRoom";
 
 // ✅ Custom Protected Route
 function ProtectedRoute({ children, role }) {
@@ -241,6 +242,14 @@ function App() {
           element={
             <ProtectedRoute role="admin">
               <AdminManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/rooms"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminRoom />
             </ProtectedRoute>
           }
         />
