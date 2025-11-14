@@ -123,55 +123,21 @@ export default function ClassModal({
             <option value="12">Grade 12</option>
           </select>
 
-          {/* Days Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowDaysDropdown((prev) => !prev)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm text-left focus:ring-2 focus:ring-[#3498db] outline-none"
-              type="button"
-            >
-              {classForm.days.length > 0
-                ? classForm.days.join(", ")
-                : "Select Days"}
-            </button>
-            {showDaysDropdown && (
-              <div className="absolute mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-sm z-50 max-h-56 overflow-y-auto">
-                {[
-                  "Monday",
-                  "Tuesday",
-                  "Wednesday",
-                  "Thursday",
-                  "Friday",
-                  "Saturday",
-                  "Sunday",
-                ].map((day) => (
-                  <label
-                    key={day}
-                    className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={classForm.days.includes(day)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setClassForm({
-                            ...classForm,
-                            days: [...classForm.days, day],
-                          });
-                        } else {
-                          setClassForm({
-                            ...classForm,
-                            days: classForm.days.filter((d) => d !== day),
-                          });
-                        }
-                      }}
-                    />
-                    {day}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Day Dropdown (single selection, Monday–Friday) */}
+          <select
+            value={classForm.days[0] || ""}
+            onChange={(e) =>
+              setClassForm({ ...classForm, days: [e.target.value] })
+            }
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#3498db] outline-none"
+          >
+            <option value="">Select Day</option>
+            {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((day) => (
+              <option key={day} value={day}>
+                {day}
+              </option>
+            ))}
+          </select>
 
           {/* Time Inputs */}
           <div className="flex gap-4">

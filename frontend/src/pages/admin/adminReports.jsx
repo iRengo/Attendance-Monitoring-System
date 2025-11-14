@@ -16,6 +16,22 @@ export default function AdminReports() {
 
   const hasData = rows.length > 0;
 
+  // Student percent rule:
+  // - Each "late" counts as present for percentage up to 3 lates.
+  // - After 3 lates, subsequent lates count as absents.
+  function computeAdjustedStudentPercent(r) {
+    const present = Number(r.present || 0);
+    const late = Number(r.late || 0);
+    const absent = Number(r.absent || 0);
+    const total = Number(r.totalDays ?? (present + late + absent) ?? 0);
+    if (!total) return 0;
+    const lateCountedAsPresent = Math.min(late, 3);
+    const presentEquivalent = present + lateCountedAsPresent;
+    const percent = (presentEquivalent / total) * 100;
+      return Number(Math.min(percent, 100).toFixed(1)); // CAP at 100%
+
+  }
+
   function formatPercent(value) {
     if (value === null || value === undefined || value === "") return "";
     const num = Number(value);
@@ -29,14 +45,17 @@ export default function AdminReports() {
 
     if (reportKind === "student") {
       headers = ["Student Name","Grade & Section","Total Days","Present","Absent","Late","Attendance %"];
-      mapped = rows.map(r => [r.studentName,r.gradeSection,r.totalDays,r.present,r.absent,r.late,formatPercent(r.attendancePercent)]);
+      mapped = rows.map(r => {
+        const pct = computeAdjustedStudentPercent(r);
+        return [r.studentName, r.gradeSection, r.totalDays, r.present, r.absent, r.late, formatPercent(pct)];
+      });
     } else if (reportKind === "teacher") {
-      headers = ["Teacher Name","Subject","Attendance Submitted","Missed Days","Submission Rate"];
-      mapped = rows.map(r => [r.teacherName,r.subject,r.attendanceSubmitted,r.missedDays,formatPercent(r.submissionRate)]);
+      headers = ["Teacher Name","Attendance Submitted","Missed Days","Submission Rate"];
+      mapped = rows.map(r => [r.teacherName,r.attendanceSubmitted,r.missedDays,formatPercent(r.submissionRate)]);
     } else {
       // Monthly: add Total Presents
-      headers = ["Month","Total Days","Total Presents","Avg Attendance %","Total Absences","Late Entries"];
-      mapped = rows.map(r => [r.month,r.totalDays,r.totalPresents,formatPercent(r.avgAttendancePercent),r.totalAbsences,r.lateEntries]);
+      headers = ["Month","Total Days","Total Presents","Total Absences","Late Entries","Avg Attendance %"];
+      mapped = rows.map(r => [r.month,r.totalDays,r.totalPresents,r.totalAbsences,r.lateEntries,formatPercent(r.avgAttendancePercent)]);
     }
 
     const csvContent = "data:text/csv;charset=utf-8," + [headers,...mapped].map(e=>e.join(",")).join("\n");
@@ -87,18 +106,18 @@ export default function AdminReports() {
       if (reportKind === "student") {
         columns = ["#", "Student Name", "Grade & Section", "Total Days", "Present", "Absent", "Late", "Attendance %"];
         data = rows.map((r,i)=>[
-          i+1, r.studentName, r.gradeSection, r.totalDays, r.present, r.absent, r.late, formatPercent(r.attendancePercent)
+          i+1, r.studentName, r.gradeSection, r.totalDays, r.present, r.absent, r.late, formatPercent(computeAdjustedStudentPercent(r))
         ]);
       } else if (reportKind === "teacher") {
-        columns = ["#", "Teacher Name", "Subject", "Attendance Submitted", "Missed Days", "Submission Rate"];
+        columns = ["#", "Teacher Name", "Attendance Submitted", "Missed Days", "Submission Rate"];
         data = rows.map((r,i)=>[
-          i+1, r.teacherName, r.subject, r.attendanceSubmitted, r.missedDays, formatPercent(r.submissionRate)
+          i+1, r.teacherName, r.attendanceSubmitted, r.missedDays, formatPercent(r.submissionRate)
         ]);
       } else {
         // Monthly: add Total Presents
-        columns = ["#", "Month", "Total Days", "Total Presents", "Avg Attendance %", "Total Absences", "Late Entries"];
+        columns = ["#", "Month", "Total Days", "Total Presents", "Total Absences", "Late Entries","Avg Attendance %"];
         data = rows.map((r,i)=>[
-          i+1, r.month, r.totalDays, r.totalPresents, formatPercent(r.avgAttendancePercent), r.totalAbsences, r.lateEntries
+          i+1, r.month, r.totalDays, r.totalPresents, r.totalAbsences, r.lateEntries, formatPercent(r.avgAttendancePercent)
         ]);
       }
 
@@ -300,10 +319,10 @@ export default function AdminReports() {
                       <Th>#</Th><Th>Student Name</Th><Th>Grade & Section</Th><Th>Total Days</Th><Th>Present</Th><Th>Absent</Th><Th>Late</Th><Th>Attendance %</Th>
                     </>}
                     {reportKind==='teacher' && <>
-                      <Th>#</Th><Th>Teacher Name</Th><Th>Subject</Th><Th>Attendance Submitted</Th><Th>Missed Days</Th><Th>Submission Rate %</Th>
+                      <Th>#</Th><Th>Teacher Name</Th><Th>Attendance Submitted</Th><Th>Missed Days</Th><Th>Submission Rate %</Th>
                     </>}
                     {reportKind==='monthly' && <>
-                      <Th>#</Th><Th>Month</Th><Th>Total Days</Th><Th>Total Presents</Th><Th>Avg Attendance %</Th><Th>Total Absences</Th><Th>Late Entries</Th>
+                      <Th>#</Th><Th>Month</Th><Th>Total Days</Th><Th>Total Presents</Th><Th>Total Absences</Th><Th>Late Entries</Th><Th>Avg Attendance %</Th>
                     </>}
                   </tr>
                 </thead>
@@ -315,12 +334,12 @@ export default function AdminReports() {
                         <Td>{idx+1}</Td><Td>{r.studentName}</Td><Td>{r.gradeSection}</Td>
                         <Td>{r.totalDays}</Td><Td className="text-green-700">{r.present}</Td>
                         <Td className="text-gray-600">{r.absent}</Td><Td className="text-orange-600">{r.late}</Td>
-                        <Td>{formatPercent(r.attendancePercent)}</Td>
+                        <Td>{formatPercent(computeAdjustedStudentPercent(r))}</Td>
                       </tr>
                     );
                     if (reportKind==='teacher') return (
                       <tr key={r.teacherId||idx} className={`${alt} hover:bg-blue-50`}>
-                        <Td>{idx+1}</Td><Td>{r.teacherName}</Td><Td>{r.subject}</Td>
+                        <Td>{idx+1}</Td><Td>{r.teacherName}</Td>
                         <Td className="text-green-700">{r.attendanceSubmitted}</Td>
                         <Td className="text-gray-600">{r.missedDays}</Td>
                         <Td>{formatPercent(r.submissionRate)}</Td>
@@ -330,9 +349,9 @@ export default function AdminReports() {
                       <tr key={r.month||idx} className={`${alt} hover:bg-blue-50`}>
                         <Td>{idx+1}</Td><Td>{r.month}</Td><Td>{r.totalDays}</Td>
                         <Td className="text-green-700">{r.totalPresents}</Td>
-                        <Td className="text-green-700">{formatPercent(r.avgAttendancePercent)}</Td>
                         <Td className="text-gray-600">{r.totalAbsences}</Td>
                         <Td className="text-orange-600">{r.lateEntries}</Td>
+                        <Td className="text-green-700">{formatPercent(r.avgAttendancePercent)}</Td>
                       </tr>
                     );
                   })}

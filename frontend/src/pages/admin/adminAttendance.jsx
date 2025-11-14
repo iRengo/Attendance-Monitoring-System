@@ -3,7 +3,7 @@ import AdminLayout from "../../components/adminLayout";
 import FiltersBar from "./components/adminAttendance/layout/FiltersBar";
 import TeachersList from "./components/adminAttendance/teachers/TeachersList";
 import TeacherDetail from "./components/adminAttendance/teachers/TeacherDetail";
-import StudentsList from "./components//adminAttendance/students/StudentsList";
+import StudentsList from "./components/adminAttendance/students/StudentsList";
 import StudentDetail from "./components/adminAttendance/students/StudentDetail";
 import EmptyState from "./components/shared/EmptyState";
 
@@ -104,23 +104,48 @@ export default function AdminAttendance() {
   }, [selectedTeacher, selectedSection, sectionSessions, teacherSessionsNoSection]);
 
   // Sessions for selected student (only if section selected)
+  // NOTE: include sessions that mention the student in entries (any status) OR studentsPresent OR studentsAbsent
   const studentDetailSessions = useMemo(() => {
     if (!selectedStudent || !selectedSection) return [];
-    const uid = selectedStudent.id;
+    const uid = String(selectedStudent.id);
     return sectionSessions.filter((sess) => {
+      // studentsPresent shortcut
       if (Array.isArray(sess.studentsPresent) && sess.studentsPresent.includes(uid)) {
         return true;
       }
+
+      // entries array - include session if any entry references the student (present/late/absent)
       const entries =
         (Array.isArray(sess.entries) && sess.entries) ||
         (Array.isArray(sess.attendance_entries) && sess.attendance_entries) ||
         [];
-      if (!entries.length) return false;
-      return entries.some((e) => {
-        const sid = e?.student_id || e?.studentId || e?.uid || "";
-        const status = String(e?.status || "").toLowerCase();
-        return sid === uid && (status === "present" || status === "late");
-      });
+      if (entries.length) {
+        const found = entries.some((e) => {
+          const sid = String(e?.student_id ?? e?.studentId ?? e?.uid ?? e?.id ?? "");
+          return sid === uid;
+        });
+        if (found) return true;
+      }
+
+      // explicit studentsAbsent membership
+      if (Array.isArray(sess.studentsAbsent) && sess.studentsAbsent.includes(uid)) {
+        return true;
+      }
+
+      // also check some nested/raw shapes
+      if (sess.raw) {
+        if (Array.isArray(sess.raw.entries) && sess.raw.entries.some(e => String(e?.student_id ?? e?.studentId ?? e?.uid ?? e?.id ?? "") === uid)) {
+          return true;
+        }
+        if (Array.isArray(sess.raw.studentsAbsent) && sess.raw.studentsAbsent.includes(uid)) {
+          return true;
+        }
+        if (Array.isArray(sess.raw.studentsPresent) && sess.raw.studentsPresent.includes(uid)) {
+          return true;
+        }
+      }
+
+      return false;
     });
   }, [selectedStudent, selectedSection, sectionSessions]);
 

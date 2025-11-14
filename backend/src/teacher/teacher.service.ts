@@ -3,7 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import * as nodemailer from "nodemailer";
 import * as path from "path";
 import * as fs from "fs";
@@ -271,6 +271,40 @@ export class TeacherService {
     return (fallbackName || "").trim();
   }
 
+  // Parse a time string (either "HH:MM" 24h or "h:mm AM/PM") and return a Firestore Timestamp.
+  // If parsing fails or value is empty, returns null.
+  private parseTimeToTimestamp(timeStr?: string): Timestamp | null {
+    if (!timeStr) return null;
+    const s = String(timeStr).trim();
+    // If already looks like Firestore Timestamp (object), leave to caller (shouldn't happen here)
+    // Try 24h "HH:MM"
+    const hhmm24 = s.match(/^(\d{1,2}):(\d{2})$/);
+    let hour = 0;
+    let minute = 0;
+    if (hhmm24) {
+      hour = Number(hhmm24[1]);
+      minute = Number(hhmm24[2]);
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    } else {
+      // Try "h:mm AM/PM"
+      const m = s.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+      if (!m) return null;
+      let h = Number(m[1]);
+      const mm = Number(m[2]);
+      const isPM = m[3].toLowerCase() === "pm";
+      if (h === 12 && !isPM) h = 0;
+      if (isPM && h < 12) h += 12;
+      if (h < 0 || h > 23 || mm < 0 || mm > 59) return null;
+      hour = h;
+      minute = mm;
+    }
+
+    // Create a Date using today's date with the parsed time (local timezone)
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+    return Timestamp.fromDate(d);
+  }
+
   private buildClassDoc(data: any) {
     const subjectName = (data.subjectName ?? data.subject ?? "").trim();
     const legacyRoomId = (data.roomId ?? "").trim();
@@ -280,8 +314,15 @@ export class TeacherService {
     const section = (data.section ?? "").trim();
     const gradeLevel = (data.gradeLevel ?? "").toString().trim();
     const days = (data.days ?? "").trim();
-    const time_start = (data.time_start ?? "").trim();
-    const time_end = (data.time_end ?? "").trim();
+
+    // time_start/time_end may come in as strings (e.g. "02:05 PM" or "14:05")
+    // Convert to Firestore Timestamp objects. If conversion fails, keep null.
+    const time_start_raw = (data.time_start ?? "").trim();
+    const time_end_raw = (data.time_end ?? "").trim();
+
+    const time_start_ts = this.parseTimeToTimestamp(time_start_raw);
+    const time_end_ts = this.parseTimeToTimestamp(time_end_raw);
+
     const teacherId = data.teacherId;
 
     const computedName = this.buildComputedName(
@@ -300,8 +341,9 @@ export class TeacherService {
       section,
       gradeLevel,
       days,
-      time_start,
-      time_end,
+      // store as timestamps (or null) instead of plain strings
+      time_start: time_start_ts ?? null,
+      time_end: time_end_ts ?? null,
       createdAt: data.createdAt ?? now,
       updatedAt: now,
     };

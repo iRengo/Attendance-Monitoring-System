@@ -18,6 +18,13 @@ export default function AttendanceCards({ attendance }) {
           <Icon size={32} className="mb-2 text-gray-600" />
           <h2 className="text-sm font-medium mb-1 text-gray-700">{label}</h2>
           <p className="text-2xl font-bold text-gray-900">{attendance[key]}</p>
+
+          {/* Static reminder for Late card */}
+          {key === "late" && (
+            <p className="text-xs text-red-500 mt-1 text-center">
+              Reminder: After 3 lates, every late will count as absent on %
+            </p>
+          )}
         </div>
       ))}
     </div>

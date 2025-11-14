@@ -1,3 +1,19 @@
+/**
+ * Modified AdminService: fixed TypeScript errors by explicitly typing
+ * teacher attendance helpers to return Promise<any[]> and casting
+ * document data to `any` so properties like `timestarted`, `room`, `classId`
+ * are accessible without TS complaining that the object is `{ id: string }`.
+ *
+ * Key changes:
+ * - getTeacherAttendanceDocsBetween(...) now returns Promise<any[]>
+ *   and maps docs to `any`.
+ * - getTeacherAllAttendanceDocs(...) now returns Promise<any[]>
+ *   and maps docs to `any`.
+ * - Loops that iterate teacher attendance docs now treat each `doc` as `any`.
+ *
+ * This resolves the TS2339 errors about properties not existing on the `{ id: string }` type.
+ */
+
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Express } from 'express';
 import csvParser from 'csv-parser';
@@ -6,9 +22,6 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import * as nodemailer from 'nodemailer';
 
-/* --------------------------------------------------------------------------
- * EXPORTED TYPES (needed by controller)
- * -------------------------------------------------------------------------- */
 export interface StudentAttendanceRow {
   studentId: string;
   studentName: string;
@@ -412,24 +425,83 @@ export class AdminService {
     return rows;
   }
 
+  /* ---------------- UPDATED: Teacher Compliance Reports ---------------- */
+
+  // Helper: fetch attendance docs for a teacher between from/to (inclusive).
+  // Explicitly returns Promise<any[]> and casts document data to `any`.
+  private async getTeacherAttendanceDocsBetween(teacherId: string, fromDate: string, toDate: string): Promise<any[]> {
+    const collRef = this.db.collection('teachers').doc(teacherId).collection('attendance');
+    const snap = await collRef.get();
+    const fromMs = new Date(fromDate + 'T00:00:00Z').getTime();
+    const toMs = new Date(toDate + 'T23:59:59Z').getTime();
+
+    // Map docs to `any` to ensure properties are accessible
+    const docsArray: any[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as any));
+
+    const results: any[] = [];
+    for (const doc of docsArray) {
+      const raw = doc.timestarted || doc.date || doc.timeStarted || doc.createdAt;
+      if (!raw) continue;
+      const dt = parseFlexibleDate(raw);
+      const ms = dt.getTime();
+      if (ms >= fromMs && ms <= toMs) {
+        results.push(doc);
+      }
+    }
+    return results;
+  }
+
+  // Helper: fetch all attendance docs for a teacher
+  private async getTeacherAllAttendanceDocs(teacherId: string): Promise<any[]> {
+    const collRef = this.db.collection('teachers').doc(teacherId).collection('attendance');
+    const snap = await collRef.get();
+    // Cast each doc's data to any
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as any));
+  }
+
+  // Build teacher compliance report for a given date range.
   async buildTeacherComplianceReport(from: string, to: string, teacherId?: string) {
-    const sessions = await this.querySessionsInRange(from, to);
-    const submittedCount: Record<string, number> = {};
-    const subjectSet: Record<string, Set<string>> = {};
-    sessions.forEach(sess => {
-      const tid = sess.teacherId;
-      if (!tid) return;
-      if (teacherId && tid !== teacherId) return;
-      submittedCount[tid] = (submittedCount[tid] || 0) + 1;
-      const subj = (sess.classData?.subjectName || sess.classData?.name || 'Subject').trim();
-      if (!subjectSet[tid]) subjectSet[tid] = new Set();
-      subjectSet[tid].add(subj);
-    });
+    // Determine teacher IDs to process
+    let teacherIds: string[] = [];
+    if (teacherId) {
+      teacherIds = [teacherId];
+    } else {
+      const tSnap = await this.db.collection('teachers').get();
+      teacherIds = tSnap.docs.map(d => d.id);
+    }
+
     const daysInRange = enumerateDates(from, to).filter(d => d.getDay() !== 0).length;
+
     const rows: TeacherComplianceRow[] = [];
-    const teacherIds = teacherId ? [teacherId] : Object.keys(submittedCount);
+
     for (const tid of teacherIds) {
-      const submitted = submittedCount[tid] || 0;
+      // fetch attendance docs for this teacher in range
+      const docs = await this.getTeacherAttendanceDocsBetween(tid, from, to);
+
+      // Now count only present/late as submitted and also collect subjects in the same loop
+      let submitted = 0;
+      const subjectSet = new Set<string>();
+      for (const doc of docs as any[]) {
+        const st = (doc.status || '').toLowerCase();
+        if (st === 'present' || st === 'late') submitted++;
+
+        // prefer class subject if classId exists
+        let subj = 'Subject';
+        if (doc.classId) {
+          try {
+            const clsSnap = await this.db.collection('classes').doc(doc.classId).get();
+            if (clsSnap.exists) {
+              const cd: any = clsSnap.data() || {};
+              subj = (cd.subjectName || cd.name || subj).trim();
+            }
+          } catch {}
+        } else if (doc.room) {
+          subj = String(doc.room).trim() || subj;
+        }
+        subjectSet.add(subj);
+      }
+
+      // resolve teacher display name
       let teacherName = tid;
       try {
         const snap = await this.db.collection('teachers').doc(tid).get();
@@ -441,23 +513,103 @@ export class AdminService {
           teacherName = `${first} ${middle} ${last}`.replace(/\s+/g, ' ').trim() || teacherName;
         }
       } catch {}
-      const subjectsCount = subjectSet[tid]?.size || 1;
+
+      const subjectsCount = subjectSet.size || 1;
       const expected = subjectsCount * daysInRange;
       const missed = Math.max(0, expected - submitted);
       const rate = expected ? (submitted / expected) * 100 : 0;
+
       rows.push({
         teacherId: tid,
         teacherName,
-        subject: Array.from(subjectSet[tid] || [])[0] || 'N/A',
+        subject: Array.from(subjectSet)[0] || 'N/A',
         attendanceSubmitted: submitted,
         missedDays: missed,
         submissionRate: Number(rate.toFixed(1)),
       });
     }
+
     rows.sort((a, b) => a.teacherName.localeCompare(b.teacherName));
     return rows;
   }
 
+  // Build teacher compliance report for all time (overall).
+  async buildTeacherComplianceReportAll(teacherId?: string) {
+    // Determine teacher IDs to process
+    let teacherIds: string[] = [];
+    if (teacherId) {
+      teacherIds = [teacherId];
+    } else {
+      const tSnap = await this.db.collection('teachers').get();
+      teacherIds = tSnap.docs.map(d => d.id);
+    }
+
+    const rows: TeacherComplianceRow[] = [];
+
+    for (const tid of teacherIds) {
+      const docs = await this.getTeacherAllAttendanceDocs(tid);
+
+      // aggregate submitted count, unique days and subjects
+      let submitted = 0;
+      const uniqueDays = new Set<string>();
+      const subjects = new Set<string>();
+
+      for (const doc of docs as any[]) {
+        const st = (doc.status || '').toLowerCase();
+        if (st === 'present' || st === 'late') submitted++;
+
+        const raw = doc.timestarted || doc.date || doc.timeStarted || doc.createdAt;
+        if (raw) {
+          try {
+            const dt = parseFlexibleDate(raw);
+            uniqueDays.add(dt.toISOString().slice(0, 10));
+          } catch {}
+        }
+        if (doc.classId) {
+          try {
+            const clsSnap = await this.db.collection('classes').doc(doc.classId).get();
+            if (clsSnap.exists) {
+              const cd: any = clsSnap.data() || {};
+              subjects.add((cd.subjectName || cd.name || 'Subject').trim());
+              continue;
+            }
+          } catch {}
+        }
+        if (doc.room) subjects.add(String(doc.room).trim() || 'Subject');
+      }
+
+      // resolve teacher display name
+      let teacherName = tid;
+      try {
+        const snap = await this.db.collection('teachers').doc(tid).get();
+        if (snap.exists) {
+          const d: any = snap.data() || {};
+          const first = d.firstName || d.firstname || '';
+          const middle = d.middleName || d.middlename || '';
+          const last = d.lastName || d.lastname || '';
+          teacherName = `${first} ${middle} ${last}`.replace(/\s+/g, ' ').trim() || teacherName;
+        }
+      } catch {}
+
+      const expected = uniqueDays.size * (subjects.size || 1);
+      const missed = Math.max(0, expected - submitted);
+      const submissionRate = expected ? (submitted / expected) * 100 : 0;
+
+      rows.push({
+        teacherId: tid,
+        teacherName,
+        subject: Array.from(subjects)[0] || 'N/A',
+        attendanceSubmitted: submitted,
+        missedDays: missed,
+        submissionRate: Number(submissionRate.toFixed(1)),
+      });
+    }
+
+    rows.sort((a, b) => a.teacherName.localeCompare(b.teacherName));
+    return rows;
+  }
+
+  /* ---------------- Monthly Summary and Student/Other Reports ---------------- */
   async buildMonthlySummaryReport(from: string, to: string) {
     const sessions = await this.querySessionsInRange(from, to);
     const monthly: Record<string, { present: number; absent: number; late: number; totalEntries: number; dates: Set<string> }> = {};
@@ -492,7 +644,6 @@ export class AdminService {
     return rows;
   }
 
-  /* ---------------- Overall (All-Time) Reports ---------------- */
   async buildStudentAttendanceReportAll(studentId?: string) {
     const sessions = await this.getAllSessions();
     const stats: Record<string, { present: number; absent: number; late: number; uniqueDays: Set<string> }> = {};
@@ -542,49 +693,6 @@ export class AdminService {
       };
     });
     rows.sort((a, b) => a.studentName.localeCompare(b.studentName));
-    return rows;
-  }
-
-  async buildTeacherComplianceReportAll(teacherId?: string) {
-    const sessions = await this.getAllSessions();
-    const teacherStats: Record<string, { submitted: number; subjects: Set<string>; uniqueDays: Set<string> }> = {};
-    sessions.forEach(sess => {
-      const tid = sess.teacherId;
-      if (!tid) return;
-      if (teacherId && tid !== teacherId) return;
-      if (!teacherStats[tid]) teacherStats[tid] = { submitted: 0, subjects: new Set(), uniqueDays: new Set() };
-      teacherStats[tid].submitted++;
-      teacherStats[tid].uniqueDays.add(this.extractDay(sess));
-      const subj = (sess.classData?.subjectName || sess.classData?.name || sess.roomLabel || 'Subject').trim();
-      teacherStats[tid].subjects.add(subj);
-    });
-    const rows: TeacherComplianceRow[] = [];
-    for (const tid of Object.keys(teacherStats)) {
-      let teacherName = tid;
-      try {
-        const snap = await this.db.collection('teachers').doc(tid).get();
-        if (snap.exists) {
-          const d: any = snap.data() || {};
-          const first = d.firstName || d.firstname || '';
-          const middle = d.middleName || d.middlename || '';
-          const last = d.lastName || d.lastname || '';
-          teacherName = `${first} ${middle} ${last}`.replace(/\s+/g,' ').trim() || teacherName;
-        }
-      } catch {}
-      const stat = teacherStats[tid];
-      const expected = stat.uniqueDays.size * stat.subjects.size;
-      const missed = Math.max(0, expected - stat.submitted);
-      const submissionRate = expected ? (stat.submitted / expected) * 100 : 0;
-      rows.push({
-        teacherId: tid,
-        teacherName,
-        subject: Array.from(stat.subjects)[0] || 'N/A',
-        attendanceSubmitted: stat.submitted,
-        missedDays: missed,
-        submissionRate: Number(submissionRate.toFixed(1)),
-      });
-    }
-    rows.sort((a, b) => a.teacherName.localeCompare(b.teacherName));
     return rows;
   }
 

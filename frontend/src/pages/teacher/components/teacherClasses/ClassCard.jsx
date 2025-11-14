@@ -1,6 +1,61 @@
 import React from "react";
 import { MoreHorizontal } from "lucide-react";
 
+function formatTimeValue(value) {
+  if (value == null) return null;
+
+  // If it's already a string like "HH:MM" or "2:05 PM", try to parse/normalize
+  if (typeof value === "string") {
+    const s = value.trim();
+    // If already looks like HH:MM, return as-is
+    if (/^\d{1,2}:\d{2}$/.test(s)) return s;
+    // Try parsing ISO or other date strings
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+    return s;
+  }
+
+  // Firestore Timestamp-like object with toDate()
+  if (typeof value === "object") {
+    try {
+      if (typeof value.toDate === "function") {
+        const d = value.toDate();
+        if (!Number.isNaN(d.getTime())) {
+          return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        }
+      } else if (typeof value.seconds === "number") {
+        // plain object { seconds, nanoseconds }
+        const ms = value.seconds * 1000 + Math.floor((value.nanoseconds || 0) / 1e6);
+        const d = new Date(ms);
+        if (!Number.isNaN(d.getTime())) {
+          return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        }
+      } else if (typeof value._seconds === "number") {
+        const ms = value._seconds * 1000 + Math.floor((value._nanoseconds || 0) / 1e6);
+        const d = new Date(ms);
+        if (!Number.isNaN(d.getTime())) {
+          return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        }
+      }
+    } catch (err) {
+      // fallthrough
+    }
+  }
+
+  // If number (seconds or ms)
+  if (typeof value === "number") {
+    const maybeMs = value > 1e12 ? value : value < 1e11 ? value * 1000 : value;
+    const d = new Date(maybeMs);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+  }
+
+  return null;
+}
+
 export default function ClassCard({
   cls,
   studentCount,
@@ -11,8 +66,12 @@ export default function ClassCard({
   handleCopyLink,
   setSelectedClass,
 }) {
+  const start = formatTimeValue(cls?.time_start);
+  const end = formatTimeValue(cls?.time_end);
+
   const displayTime =
-    (cls.time_start && cls.time_end && `${cls.time_start} - ${cls.time_end}`) ||
+    (start && end && `${start} - ${end}`) ||
+    (start && !end && start) ||
     cls.time || // legacy fallback
     "-";
 

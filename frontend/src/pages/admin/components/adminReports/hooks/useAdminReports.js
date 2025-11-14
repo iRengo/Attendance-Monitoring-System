@@ -1,5 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
+
+// Debounce utility – waits for user to stop typing before making API call
+function useDebounce(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debounced;
+}
 
 export default function useAdminReports() {
   const [reportKind, setReportKind] = useState("student");
@@ -20,51 +30,84 @@ export default function useAdminReports() {
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
   const [selectedTeacherName, setSelectedTeacherName] = useState("");
 
-  useEffect(()=>{
-    const ctrl = new AbortController();
-    const t = setTimeout(async ()=>{
-      if (reportKind==='student' && studentQuery.trim().length>=2) {
-        try {
-          const res = await axios.get("http://localhost:3000/admin/list/students", {
-            params:{ q: studentQuery.trim(), limit:20 }, signal: ctrl.signal
-          });
-          if (res.data.success) setStudentOptions(res.data.rows || []);
-        } catch {}
-      } else setStudentOptions([]);
-    },250);
-    return ()=>{ clearTimeout(t); ctrl.abort(); };
-  },[reportKind, studentQuery]);
+  const studentCtrl = useRef(null);
+  const teacherCtrl = useRef(null);
 
-  useEffect(()=>{
-    const ctrl = new AbortController();
-    const t = setTimeout(async ()=>{
-      if (reportKind==='teacher' && teacherQuery.trim().length>=2) {
-        try {
-          const res = await axios.get("http://localhost:3000/admin/list/teachers", {
-            params:{ q: teacherQuery.trim(), limit:20 }, signal: ctrl.signal
-          });
-          if (res.data.success) setTeacherOptions(res.data.rows || []);
-        } catch {}
-      } else setTeacherOptions([]);
-    },250);
-    return ()=>{ clearTimeout(t); ctrl.abort(); };
-  },[reportKind, teacherQuery]);
+  // Debounced search values
+  const debouncedStudent = useDebounce(studentQuery, 250);
+  const debouncedTeacher = useDebounce(teacherQuery, 250);
 
-  const fetchReport = useCallback(async ()=>{
-    setLoading(true); setError(null);
+  // 🚀 Optimized Student Search
+  useEffect(() => {
+    if (reportKind !== "student" || debouncedStudent.trim().length < 2) {
+      setStudentOptions([]);
+      return;
+    }
+    if (studentCtrl.current) studentCtrl.current.abort();
+
+    const ctrl = new AbortController();
+    studentCtrl.current = ctrl;
+
+    (async () => {
+      try {
+        const res = await axios.get("http://localhost:3000/admin/list/students", {
+          params: { q: debouncedStudent.trim(), limit: 20 },
+          signal: ctrl.signal,
+        });
+        if (res.data.success) setStudentOptions(res.data.rows || []);
+      } catch (err) {
+        if (err.name !== "CanceledError") console.error(err);
+      }
+    })();
+
+    return () => ctrl.abort();
+  }, [reportKind, debouncedStudent]);
+
+  // 🚀 Optimized Teacher Search
+  useEffect(() => {
+    if (reportKind !== "teacher" || debouncedTeacher.trim().length < 2) {
+      setTeacherOptions([]);
+      return;
+    }
+    if (teacherCtrl.current) teacherCtrl.current.abort();
+
+    const ctrl = new AbortController();
+    teacherCtrl.current = ctrl;
+
+    (async () => {
+      try {
+        const res = await axios.get("http://localhost:3000/admin/list/teachers", {
+          params: { q: debouncedTeacher.trim(), limit: 20 },
+          signal: ctrl.signal,
+        });
+        if (res.data.success) setTeacherOptions(res.data.rows || []);
+      } catch (err) {
+        if (err.name !== "CanceledError") console.error(err);
+      }
+    })();
+
+    return () => ctrl.abort();
+  }, [reportKind, debouncedTeacher]);
+
+  // 📊 Fetch Reports
+  const fetchReport = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
       let endpoint = "";
       const params = {};
-      if (reportKind==='student') {
+
+      if (reportKind === "student") {
         endpoint = "/admin/report/student-attendance-all";
         if (selectedStudentId) params.studentId = selectedStudentId;
-      } else if (reportKind==='teacher') {
+      } else if (reportKind === "teacher") {
         endpoint = "/admin/report/teacher-compliance-all";
         if (selectedTeacherId) params.teacherId = selectedTeacherId;
       } else {
         endpoint = "/admin/report/monthly-summary";
         if (month) params.month = month;
       }
+
       const res = await axios.get(`http://localhost:3000${endpoint}`, { params });
       if (res.data.success) {
         setRows(res.data.rows || []);
@@ -77,16 +120,23 @@ export default function useAdminReports() {
     }
   }, [reportKind, month, selectedStudentId, selectedTeacherId]);
 
-  const clearReport = ()=>{
-    setRows([]); setMeta(null); setError(null);
+  const clearReport = () => {
+    setRows([]);
+    setMeta(null);
+    setError(null);
   };
 
-  useEffect(()=>{
-    setSelectedStudentId(""); setSelectedStudentName("");
-    setSelectedTeacherId(""); setSelectedTeacherName("");
-    setStudentQuery(""); setTeacherQuery("");
-    setStudentOptions([]); setTeacherOptions([]);
-  },[reportKind]);
+  // Reset selections when reportKind changes
+  useEffect(() => {
+    setSelectedStudentId("");
+    setSelectedStudentName("");
+    setSelectedTeacherId("");
+    setSelectedTeacherName("");
+    setStudentQuery("");
+    setTeacherQuery("");
+    setStudentOptions([]);
+    setTeacherOptions([]);
+  }, [reportKind]);
 
   const pickStudent = (opt) => {
     setSelectedStudentId(opt.id);
@@ -94,6 +144,7 @@ export default function useAdminReports() {
     setStudentQuery(opt.name);
     setStudentOptions([]);
   };
+
   const pickTeacher = (opt) => {
     setSelectedTeacherId(opt.id);
     setSelectedTeacherName(opt.name);
@@ -102,11 +153,25 @@ export default function useAdminReports() {
   };
 
   return {
-    reportKind, setReportKind,
-    month, setMonth,
-    studentQuery, setStudentQuery, studentOptions, pickStudent, selectedStudentName,
-    teacherQuery, setTeacherQuery, teacherOptions, pickTeacher, selectedTeacherName,
-    loading, rows, meta, error,
-    fetchReport, clearReport
+    reportKind,
+    setReportKind,
+    month,
+    setMonth,
+    studentQuery,
+    setStudentQuery,
+    studentOptions,
+    pickStudent,
+    selectedStudentName,
+    teacherQuery,
+    setTeacherQuery,
+    teacherOptions,
+    pickTeacher,
+    selectedTeacherName,
+    loading,
+    rows,
+    meta,
+    error,
+    fetchReport,
+    clearReport,
   };
 }
