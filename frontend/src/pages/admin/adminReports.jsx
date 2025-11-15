@@ -23,14 +23,18 @@ export default function AdminReports() {
     const present = Number(r.present || 0);
     const late = Number(r.late || 0);
     const absent = Number(r.absent || 0);
-    const total = Number(r.totalDays ?? (present + late + absent) ?? 0);
+  
+    const total = present + absent + late; // total number of attendance events
     if (!total) return 0;
+  
     const lateCountedAsPresent = Math.min(late, 3);
     const presentEquivalent = present + lateCountedAsPresent;
+  
     const percent = (presentEquivalent / total) * 100;
-      return Number(Math.min(percent, 100).toFixed(1)); // CAP at 100%
-
+    return Number(Math.min(percent, 100).toFixed(1));
   }
+  
+  
 
   function formatPercent(value) {
     if (value === null || value === undefined || value === "") return "";

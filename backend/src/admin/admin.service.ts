@@ -1,19 +1,3 @@
-/**
- * Modified AdminService: fixed TypeScript errors by explicitly typing
- * teacher attendance helpers to return Promise<any[]> and casting
- * document data to `any` so properties like `timestarted`, `room`, `classId`
- * are accessible without TS complaining that the object is `{ id: string }`.
- *
- * Key changes:
- * - getTeacherAttendanceDocsBetween(...) now returns Promise<any[]>
- *   and maps docs to `any`.
- * - getTeacherAllAttendanceDocs(...) now returns Promise<any[]>
- *   and maps docs to `any`.
- * - Loops that iterate teacher attendance docs now treat each `doc` as `any`.
- *
- * This resolves the TS2339 errors about properties not existing on the `{ id: string }` type.
- */
-
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Express } from 'express';
 import csvParser from 'csv-parser';
@@ -649,19 +633,23 @@ export class AdminService {
     const stats: Record<string, { present: number; absent: number; late: number; uniqueDays: Set<string> }> = {};
     const studentMeta: Record<string, { name: string; gradeLevel: string; section: string }> = {};
     sessions.forEach(sess => {
-      const entries = this.extractEntries(sess);
       const day = this.extractDay(sess);
+      if (!day) return; // skip sessions with invalid dates
+  
+      const entries = this.extractEntries(sess);
       entries.forEach(e => {
-        if (!e.studentId) return;
-        if (studentId && e.studentId !== studentId) return;
-        if (!stats[e.studentId]) stats[e.studentId] = { present: 0, absent: 0, late: 0, uniqueDays: new Set() };
-        stats[e.studentId].uniqueDays.add(day);
-        const st = (e.status || '').toLowerCase();
-        if (st === 'present') stats[e.studentId].present++;
-        else if (st === 'late') stats[e.studentId].late++;
-        else if (st === 'absent') stats[e.studentId].absent++;
+          if (!e.studentId) return;
+          if (studentId && e.studentId !== studentId) return;
+  
+          if (!stats[e.studentId]) stats[e.studentId] = { present: 0, absent: 0, late: 0, uniqueDays: new Set() };
+          stats[e.studentId].uniqueDays.add(day);
+  
+          const st = (e.status || '').toLowerCase();
+          if (st === 'present') stats[e.studentId].present++;
+          else if (st === 'late') stats[e.studentId].late++;
+          else if (st === 'absent') stats[e.studentId].absent++;
       });
-    });
+  });
     for (const sid of Object.keys(stats)) {
       try {
         const snap = await this.db.collection('students').doc(sid).get();
@@ -833,11 +821,13 @@ export class AdminService {
     return results;
   }
 
-  private extractDay(sess: any) {
+  private extractDay(sess: any): string | null {
     const raw = sess.timeStarted || sess.date || sess.createdAt;
+    if (!raw) return null; // skip sessions without a valid date
     const d = parseFlexibleDate(raw);
     return d.toISOString().slice(0,10);
-  }
+}
+
 }
 
 /* ---------------- Utilities ---------------- */
@@ -851,7 +841,10 @@ function enumerateDates(from: string, to: string): Date[] {
   return arr;
 }
 
-function parseFlexibleDate(value: string): Date {
+function parseFlexibleDate(value: string | undefined | null): Date {
+  if (!value) {
+    throw new Error('Invalid date value: ' + value);
+  }
   const fixed = value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
   return new Date(fixed);
 }

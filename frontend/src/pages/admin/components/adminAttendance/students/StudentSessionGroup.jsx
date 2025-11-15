@@ -129,9 +129,9 @@ export default function StudentSessionGroup({
                 // prefer resolved.timeLogged (from util), else entry.timeLogged, else entry.created_at
                 let timeLoggedVal = entry ? (entry.timeLogged || entry.created_at || null) : null;
 
-if (statusLabel.toLowerCase() === "absent") {
-  timeLoggedVal = null;
-}
+                if (statusLabel.toLowerCase() === "absent") {
+                  timeLoggedVal = null;
+                }
 
                 // For Date column prefer entry.created_at (if present) else session.timeStarted
                 let dateForRow = null;
