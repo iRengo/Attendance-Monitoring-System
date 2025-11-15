@@ -4,14 +4,6 @@ import { FaceDetection } from "@mediapipe/face_detection";
 import { FaceMesh } from "@mediapipe/face_mesh";
 import { Camera } from "@mediapipe/camera_utils";
 
-/**
- * TeacherCameraCapture: mirrors student flow exactly:
- * - Single face, min box size
- * - Liveness: Blink + Turn Left + Turn Right
- * - Anti-spoof: flag if perfectly still too long before finishing liveness
- * - If face leaves or becomes invalid, liveness resets
- * - Capture only enabled when all three are done; then show preview and Save/Retake
- */
 export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
   const [isOpen, setIsOpen] = useState(false);
   const [capturedImage, setCapturedImage] = useState(null);
@@ -36,15 +28,14 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
   const lastBoxRef = useRef(null);
   const stillFramesRef = useRef(0);
 
-  // Blink FSM
-  const blinkPhaseRef = useRef("idle"); // idle | closed | opening
+  const blinkPhaseRef = useRef("idle");
   const closedFramesRef = useRef(0);
   const openingFramesRef = useRef(0);
 
   const faceLostRef = useRef(true);
 
   const videoConstraints = useMemo(
-    () => ({ facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 } }),
+    () => ({ facingMode: "user", width: 480, height: 480 }),
     []
   );
 
@@ -86,7 +77,6 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
     faceLostRef.current = true;
   }
 
-  // Reset only the liveness progress (used on face regain and when Retake is pressed)
   function resetLivenessProgress() {
     setBlinkDone(false);
     setYawLeftDone(false);
@@ -131,13 +121,12 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
         try {
           if (fdRef.current) await fdRef.current.send({ image: video });
           if (fmRef.current) await fmRef.current.send({ image: video });
-        } catch (_) {
-        } finally {
+        } catch (_) {} finally {
           runningRef.current = false;
         }
       },
-      width: 640,
-      height: 640,
+      width: 480,
+      height: 480,
     });
     cam.start();
     camRef.current = cam;
@@ -152,7 +141,6 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
     fmRef.current = null;
   }
 
-  // Detection results
   function onFaceResults(results) {
     const dets = results?.detections || [];
 
@@ -200,7 +188,6 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
 
     setBoxOverlay(box);
 
-    // Min face size (avoid tiny ID/phone)
     const area = (box.w || 0) * (box.h || 0);
     if (area < 0.10) {
       faceLostRef.current = true;
@@ -212,7 +199,6 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
       return;
     }
 
-    // Anti-spoof stillness (pre-liveness)
     let spoof = false;
     if (!yawRightDone && lastBoxRef.current) {
       const prev = lastBoxRef.current;
@@ -225,7 +211,7 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
       if (delta < EPS) stillFramesRef.current++;
       else stillFramesRef.current = 0;
 
-      if (stillFramesRef.current > 45) spoof = true; // ~1.5s
+      if (stillFramesRef.current > 45) spoof = true;
     }
     lastBoxRef.current = box;
 
@@ -236,7 +222,6 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
       return;
     }
 
-    // Regained valid face -> reset liveness (exactly like students)
     if (faceLostRef.current) {
       resetLivenessProgress();
       faceLostRef.current = false;
@@ -248,13 +233,11 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
     );
   }
 
-  // Landmarks results (blink + yaw)
   function onMeshResults(results) {
     const faces = results?.multiFaceLandmarks || [];
     if (!faces.length) return;
     const lm = faces[0];
 
-    // Blink using EAR
     const L = [33, 159, 158, 133, 153, 144];
     const R = [362, 386, 385, 263, 373, 374];
     const left = L.map((i) => lm[i]);
@@ -262,9 +245,9 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
 
     const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const earEye = (eye) => {
-      const v1 = dist(eye[1], eye[5]); // 159-144
-      const v2 = dist(eye[2], eye[4]); // 158-153
-      const h = dist(eye[0], eye[3]);  // 33-133
+      const v1 = dist(eye[1], eye[5]);
+      const v2 = dist(eye[2], eye[4]);
+      const h = dist(eye[0], eye[3]);
       return h === 0 ? 0 : ((v1 + v2) / 2) / h;
     };
     const EAR = (earEye(left) + earEye(right)) / 2;
@@ -294,12 +277,11 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
       }
     }
 
-    // Yaw (left/right)
     const NOSE = lm[1];
     const ELO = lm[33];
     const ERO = lm[263];
     const midX = (ELO.x + ERO.x) / 2;
-    const yawMetric = NOSE.x - midX; // negative => left, positive => right
+    const yawMetric = NOSE.x - midX;
     const YAW_THRESH = 0.02;
 
     if (!yawLeftDone && yawMetric < -YAW_THRESH) setYawLeftDone(true);
@@ -320,7 +302,6 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
   };
 
   const retake = () => {
-    // User must redo liveness (Blink + Left + Right) after retake — same as students
     setCapturedImage(null);
     resetLivenessProgress();
   };
@@ -328,7 +309,6 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
   const save = async () => {
     if (!capturedImage || busy) return;
     await onSave?.(capturedImage);
-    // After successful save, close and reset
     closeCamera();
     resetAll();
   };
@@ -336,7 +316,7 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
   return (
     <div className="flex flex-col items-center w-full">
       <h2 className="text-lg font-semibold text-gray-800 mb-3">Profile Picture</h2>
-
+      
       {!isOpen && !capturedImage && (
         <>
           <img
@@ -353,100 +333,113 @@ export default function TeacherCameraCapture({ currentImage, onSave, busy }) {
         </>
       )}
 
-      {isOpen && !capturedImage && (
-        <div className="w-full flex flex-col items-center">
-          <div className="relative rounded-xl overflow-hidden border border-gray-200 mb-2 bg-black">
-            <Webcam
-              ref={webcamRef}
-              audio={false}
-              mirrored
-              screenshotFormat="image/jpeg"
-              videoConstraints={videoConstraints}
-              className="w-64 h-64 object-cover"
-            />
-            <div
-              className={`absolute bottom-2 left-2 px-2 py-1 rounded text-xs font-medium ${
-                canCapture
-                  ? "bg-green-600 text-white"
-                  : spoofSuspected
-                  ? "bg-yellow-600 text-white"
-                  : faceOk
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-700 text-white"
-              }`}
-            >
-              {faceMessage}
-            </div>
-            {boxOverlay && (
-              <div
-                className="absolute border-2 border-yellow-400 pointer-events-none"
-                style={{
-                  left: `${boxOverlay.x * 100}%`,
-                  top: `${boxOverlay.y * 100}%`,
-                  width: `${boxOverlay.w * 100}%`,
-                  height: `${boxOverlay.h * 100}%`,
-                }}
-              />
+      {/* Modal */}
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl w-[500px] max-w-[90%] p-4 flex flex-col items-center">
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">Take Photo</h2>
+
+            {!capturedImage && (
+              <>
+                <div className="relative rounded-xl overflow-hidden border border-gray-200 mb-2">
+                <Webcam
+                  ref={webcamRef}
+                  audio={false}
+                  mirrored
+                  screenshotFormat="image/jpeg"
+                  videoConstraints={{ facingMode: "user", width: 500, height: 500 }}
+                  className="w-[480px] h-[480px]" // removed object-cover
+                  style={{ backgroundColor: "transparent" }} // ensure no background
+                />
+
+  <div
+    className={`absolute bottom-2 left-2 px-2 py-1 rounded text-xs font-medium ${
+      canCapture
+        ? "bg-green-600 text-white"
+        : spoofSuspected
+        ? "bg-yellow-600 text-white"
+        : faceOk
+        ? "bg-indigo-600 text-white"
+        : "bg-gray-700 text-white"
+    }`}
+  >
+    {faceMessage}
+  </div>
+  {boxOverlay && (
+    <div
+      className="absolute border-2 border-yellow-400 pointer-events-none"
+      style={{
+        left: `${boxOverlay.x * 100}%`,
+        top: `${boxOverlay.y * 100}%`,
+        width: `${boxOverlay.w * 100}%`,
+        height: `${boxOverlay.h * 100}%`,
+      }}
+    />
+  )}
+</div>
+
+
+                <div className="text-xs text-gray-600 mb-3">
+                  Liveness: Blink {blinkDone ? "✓" : ""} · Left {yawLeftDone ? "✓" : ""} · Right{" "}
+                  {yawRightDone ? "✓" : ""}
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={capture}
+                    disabled={!canCapture}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                      canCapture
+                        ? "bg-[#3498db] hover:bg-[#2980b9] text-white"
+                        : "bg-gray-300 text-gray-600 cursor-not-allowed"
+                    }`}
+                  >
+                    Capture
+                  </button>
+                  <button
+                    onClick={closeCamera}
+                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
             )}
-          </div>
 
-          <div className="text-xs text-gray-600 mb-3">
-            Liveness: Blink {blinkDone ? "✓" : ""} · Left {yawLeftDone ? "✓" : ""} · Right {yawRightDone ? "✓" : ""}
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={capture}
-              disabled={!canCapture}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                canCapture
-                  ? "bg-[#3498db] hover:bg-[#2980b9] text-white"
-                  : "bg-gray-300 text-gray-600 cursor-not-allowed"
-              }`}
-            >
-              Capture Photo
-            </button>
-            <button
-              onClick={closeCamera}
-              className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {capturedImage && (
-        <div className="w-full flex flex-col items-center">
-          <img
-            src={capturedImage}
-            alt="Captured"
-            className="w-32 h-32 rounded-full object-cover border-2 border-gray-300 mb-4"
-          />
-          <div className="flex gap-3">
-            <button
-              onClick={retake}
-              className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
-            >
-              Retake
-            </button>
-            <button
-              onClick={save}
-              disabled={busy}
-              className="bg-[#3498db] hover:bg-[#2980b9] disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
-            >
-              {busy ? "Saving..." : "Save Photo"}
-            </button>
-            <button
-              onClick={() => {
-                setCapturedImage(null);
-                closeCamera();
-                resetAll();
-              }}
-              className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
-            >
-              Close
-            </button>
+            {capturedImage && (
+              <div className="flex flex-col items-center">
+                <img
+                  src={capturedImage}
+                  alt="Captured"
+                  className="w-32 h-32 rounded-full object-cover border-2 border-gray-300 mb-4"
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={retake}
+                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
+                  >
+                    Retake
+                  </button>
+                  <button
+                    onClick={save}
+                    disabled={busy}
+                    className="bg-[#3498db] hover:bg-[#2980b9] disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                  >
+                    {busy ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCapturedImage(null);
+                      closeCamera();
+                      resetAll();
+                    }}
+                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

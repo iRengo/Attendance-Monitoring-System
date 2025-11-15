@@ -13,7 +13,12 @@ import {
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
-import { doc, getDoc, collection, onSnapshot } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  collection,
+  onSnapshot
+} from "firebase/firestore";
 
 export default function TeacherLayout({ title, children }) {
   const location = useLocation();
@@ -24,7 +29,11 @@ export default function TeacherLayout({ title, children }) {
   const [teacher, setTeacher] = useState(null);
   const [hasUnreadAnnouncements, setHasUnreadAnnouncements] = useState(false);
 
-  // Show banner if temp_password exists
+  // ALERT STATES
+  const [alertStudents, setAlertStudents] = useState([]);
+  const [showAlertsDropdown, setShowAlertsDropdown] = useState(false);
+  const [hasAttendanceAlerts, setHasAttendanceAlerts] = useState(false);
+
   const isTempPassword = useMemo(
     () =>
       typeof teacher?.temp_password === "string" &&
@@ -43,7 +52,7 @@ export default function TeacherLayout({ title, children }) {
 
   const pathnames = location.pathname.split("/").filter(Boolean);
 
-  // Load teacher data
+  // 🟦 LOAD TEACHER DATA
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (!user) {
@@ -51,28 +60,31 @@ export default function TeacherLayout({ title, children }) {
         return;
       }
       try {
-        const teacherRef = doc(db, "teachers", user.uid);
-        const snap = await getDoc(teacherRef);
+        const ref = doc(db, "teachers", user.uid);
+        const snap = await getDoc(ref);
         if (snap.exists()) setTeacher({ ...snap.data(), uid: user.uid });
       } catch (e) {
-        console.error("Failed to load teacher data:", e);
+        console.error("Teacher load error:", e);
       }
     });
+
     return () => unsubscribe();
   }, []);
 
-  // Listen for unread announcements
+  // 🟦 LISTEN FOR UNREAD ANNOUNCEMENTS
   useEffect(() => {
     if (!teacher?.uid) return;
 
     const unsub = onSnapshot(collection(db, "announcements"), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
       const now = new Date();
       const filtered = data.filter(
         (a) =>
           (a.target === "teachers" || a.target === "all") &&
           new Date(a.expiration) >= now
       );
+
       const unread = filtered.some((a) => !a.readBy?.includes(teacher.uid));
       setHasUnreadAnnouncements(unread);
     });
@@ -80,6 +92,90 @@ export default function TeacherLayout({ title, children }) {
     return () => unsub();
   }, [teacher?.uid]);
 
+  // 🟥🟥🟥 ALERT SYSTEM — FILTERED PER CLASS ONLY
+  useEffect(() => {
+    if (!teacher?.uid) return;
+  
+    const unsub = onSnapshot(collection(db, "attendance_sessions"), async (snapshot) => {
+      const sessions = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+  
+      // Filter sessions for this teacher
+      const teacherSessions = sessions.filter(s => s.teacherId === teacher.uid);
+  
+      // Aggregate per class
+      const classStudentCounts = {}; // { classId: { studentId: {late, absent} } }
+  
+      teacherSessions.forEach((session) => {
+        const classId = session.classId;
+        if (!classStudentCounts[classId]) classStudentCounts[classId] = {};
+  
+        if (!session.entries) return;
+  
+        session.entries.forEach(entry => {
+          const sid = entry.student_id;
+          const status = entry.status;
+  
+          if (!classStudentCounts[classId][sid]) {
+            classStudentCounts[classId][sid] = { late: 0, absent: 0 };
+          }
+  
+          if (status === "late") classStudentCounts[classId][sid].late++;
+          if (status === "absent") classStudentCounts[classId][sid].absent++;
+        });
+      });
+  
+      // Build alerts per class
+      let alerts = [];
+  
+      for (const [classId, students] of Object.entries(classStudentCounts)) {
+        // Only students reaching threshold
+        const flagged = Object.entries(students)
+          .filter(([_, s]) => s.late >= 3 || s.absent >= 3)
+          .map(([studentId, counts]) => ({ studentId, ...counts }));
+  
+        if (flagged.length === 0) continue;
+  
+        // Get subject name
+        let subjectName = "";
+        try {
+          const classRef = doc(db, "classes", classId);
+          const classSnap = await getDoc(classRef);
+          if (classSnap.exists()) subjectName = classSnap.data().subjectName || "";
+        } catch (err) {
+          console.error("Error fetching class:", err);
+        }
+  
+        // Get student names
+        const enriched = await Promise.all(flagged.map(async (s) => {
+          try {
+            const stRef = doc(db, "students", s.studentId);
+            const stSnap = await getDoc(stRef);
+  
+            let fullname = s.studentId;
+            if (stSnap.exists()) {
+              const { firstname, middlename, lastname } = stSnap.data();
+              const mid = middlename ? `${middlename.charAt(0)}.` : "";
+              fullname = `${lastname}, ${firstname} ${mid}`;
+            }
+  
+            return { ...s, fullname, subjectName, classId };
+          } catch (err) {
+            console.error("Error fetching student:", err);
+            return { ...s, fullname: s.studentId, subjectName, classId };
+          }
+        }));
+  
+        alerts = alerts.concat(enriched);
+      }
+  
+      setAlertStudents(alerts);
+      setHasAttendanceAlerts(alerts.length > 0);
+    });
+  
+    return () => unsub();
+  }, [teacher?.uid]);
+
+  // LOGOUT
   const handleLogout = async () => {
     try {
       localStorage.setItem("manualLogout", "true");
@@ -94,13 +190,13 @@ export default function TeacherLayout({ title, children }) {
   const getDisplayName = () => {
     if (!teacher) return "";
     const { firstname, middlename, lastname } = teacher;
-    const middleInitial = middlename ? `${middlename.charAt(0)}.` : "";
-    return `${firstname || ""} ${middleInitial} ${lastname || ""}`.trim();
+    const mid = middlename ? `${middlename.charAt(0)}.` : "";
+    return `${firstname} ${mid} ${lastname}`;
   };
 
   return (
     <div className="flex h-screen w-screen">
-      {/* Sidebar */}
+      {/* SIDEBAR */}
       <div
         className={`fixed left-0 top-0 h-screen ${
           isCollapsed ? "w-26" : "w-74"
@@ -157,13 +253,13 @@ export default function TeacherLayout({ title, children }) {
         </nav>
       </div>
 
-      {/* Main panel */}
+      {/* MAIN PANEL */}
       <div
         className={`flex-1 flex flex-col transition-all duration-300 ${
           isCollapsed ? "ml-26" : "ml-74"
         }`}
       >
-        {/* Top Navbar (fixed) */}
+        {/* TOP NAVBAR */}
         <div
           className="fixed top-0 h-16 bg-white shadow flex justify-between items-center px-6 z-40 transition-all duration-300"
           style={{
@@ -171,11 +267,67 @@ export default function TeacherLayout({ title, children }) {
             right: 0,
           }}
         >
-          <h2 className="text-lg font-bold text-[#415CA0] truncate">{title}</h2>
+          <h2 className="text-lg font-bold text-[#415CA0] truncate">
+            {title}
+          </h2>
 
           <div className="flex items-center gap-6">
+            {/* 🔔 ALERT BELL */}
+            <div className="relative">
+              <div
+                className="cursor-pointer"
+                onClick={() => setShowAlertsDropdown(!showAlertsDropdown)}
+              >
+                <Bell size={23} className="text-[#415CA0]" />
 
-            {/* Profile dropdown */}
+                {hasAttendanceAlerts && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
+                    {alertStudents.length}
+                  </span>
+                )}
+              </div>
+
+              {showAlertsDropdown && (
+                <div className="absolute right-0 mt-3 w-80 bg-white rounded-md shadow-lg border z-50">
+                  <div className="p-3 font-semibold text-[#415CA0] border-b">
+                    Attendance Alerts
+                  </div>
+
+                  {alertStudents.length === 0 ? (
+                    <p className="p-3 text-sm text-gray-600">No alerts.</p>
+                  ) : (
+                    alertStudents.map((s) => (
+                      <div key={s.studentId} className="p-3 border-b">
+                        <p className="font-medium text-gray-900">
+                          {s.fullname}
+                        </p>
+
+                        {s.subjectName && (
+                          <p className="text-xs text-gray-500 mb-1">
+                            Subject: {s.subjectName}
+                          </p>
+                        )}
+
+                        <p className="text-sm text-gray-600">
+                          • Absents: <strong>{s.absent}</strong>
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          • Lates: <strong>{s.late}</strong>
+                        </p>
+
+                        <p className="mt-1 text-sm text-red-600 font-semibold">
+                          {s.absent >= 3
+                            ? "❗ Reached 3 Absences"
+                            : "⚠️ Reached 3 Lates"}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* PROFILE */}
             <div className="relative">
               <div
                 className="flex items-center gap-4 cursor-pointer bg-white px-3 py-1 border hover:bg-[#F0F4FF] transition"
@@ -197,9 +349,11 @@ export default function TeacherLayout({ title, children }) {
                   <>
                     <div className="flex flex-col leading-tight">
                       <span className="font-medium text-[#32487E]">
-                        {getDisplayName() || "Loading..."}
+                        {getDisplayName()}
                       </span>
-                      <span className="text-xs text-gray-500">Teacher</span>
+                      <span className="text-xs text-gray-500">
+                        Teacher
+                      </span>
                     </div>
                     <ChevronDown size={16} className="text-[#415CA0]" />
                   </>
@@ -218,12 +372,14 @@ export default function TeacherLayout({ title, children }) {
                 </div>
               )}
             </div>
+
           </div>
         </div>
 
-        {/* Scrollable content */}
+        {/* CONTENT */}
         <div className="flex-1 overflow-y-auto bg-gray-50 mt-16 p-6">
-          {/* Temp password banner */}
+
+          {/* Temp password warning */}
           {isTempPassword && (
             <div className="mb-4 rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
               Your account is using a temporary password. Please update your password to secure your account.
@@ -259,7 +415,6 @@ export default function TeacherLayout({ title, children }) {
             </div>
           </div>
 
-          {/* Page children */}
           {children}
         </div>
       </div>
