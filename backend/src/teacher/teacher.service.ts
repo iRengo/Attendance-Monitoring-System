@@ -7,6 +7,7 @@ import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import * as nodemailer from "nodemailer";
 import * as path from "path";
 import * as fs from "fs";
+import * as fsPromises from "fs/promises";
 
 @Injectable()
 export class TeacherService {
@@ -410,12 +411,61 @@ export class TeacherService {
       { merge: true }
     );
 
+    // Update server-side classes cache immediately (best-effort)
+    try {
+      // Read existing cache, append/replace
+      const cached = await this.readClassesCache(teacherId).catch(() => null);
+      const updatedCache = Array.isArray(cached) ? cached.filter(c => c.id !== classRef.id) : [];
+      updatedCache.unshift({ id: classRef.id, ...classDoc });
+      await this.writeClassesCache(teacherId, updatedCache);
+    } catch (cacheErr) {
+      // ignore cache write errors
+      console.warn("Failed to update classes cache after addClass:", cacheErr);
+    }
+
     return { success: true, id: classRef.id };
+  }
+
+  // SERVER-SIDE CACHING: store a simple per-teacher JSON cache on disk (runtime_cache/)
+  // This is a short-term resilience measure to serve class lists when Firestore is temporarily unavailable.
+  private async writeClassesCache(teacherId: string, classes: any[]) {
+    try {
+      const dir = path.resolve(process.cwd(), "runtime_cache");
+      await fsPromises.mkdir(dir, { recursive: true });
+      const filePath = path.join(dir, `classes_${teacherId}.json`);
+      const payload = { ts: new Date().toISOString(), classes };
+      await fsPromises.writeFile(filePath, JSON.stringify(payload, null, 2), {
+        encoding: "utf8",
+      });
+    } catch (err) {
+      // bubble up to caller (caller can warn)
+      throw err;
+    }
+  }
+
+  private async readClassesCache(teacherId: string) {
+    try {
+      const filePath = path.resolve(process.cwd(), "runtime_cache", `classes_${teacherId}.json`);
+      const raw = await fsPromises.readFile(filePath, { encoding: "utf8" });
+      const parsed = JSON.parse(raw);
+      // optional TTL logic: you can skip stale cache by checking parsed.ts
+      return parsed.classes || [];
+    } catch (err) {
+      throw err;
+    }
   }
 
   async getClasses(teacherId: string) {
     const classesCol = this.db.collection("classes");
+
+    // helper to detect "requires index" response (existing logic)
+    const isIndexError = (err: any) =>
+      err?.code === 9 ||
+      (typeof err?.message === "string" &&
+        err.message.toLowerCase().includes("requires an index"));
+
     try {
+      // Normal query (ordered)
       const snapshot = await classesCol
         .where("teacherId", "==", teacherId)
         .orderBy("createdAt", "desc")
@@ -426,25 +476,52 @@ export class TeacherService {
         ...doc.data(),
       }));
 
+      // persist cache for resilience
+      try {
+        await this.writeClassesCache(teacherId, classes);
+      } catch (cacheErr) {
+        console.warn("Could not write classes cache:", cacheErr);
+      }
+
       return { success: true, classes };
     } catch (e: any) {
-      const needsIndex =
-        e?.code === 9 ||
-        (typeof e?.message === "string" &&
-          e.message.toLowerCase().includes("requires an index"));
+      console.error("getClasses Firestore error:", e);
 
-      if (!needsIndex) throw e;
+      // If it's an index error, fallback to un-ordered query as before
+      if (isIndexError(e)) {
+        try {
+          const snapNoOrder = await classesCol.where("teacherId", "==", teacherId).get();
+          const classes = snapNoOrder.docs
+            .map((doc) => ({ id: doc.id, ...doc.data() }))
+            .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
-      const snapNoOrder = await classesCol
-        .where("teacherId", "==", teacherId)
-        .get();
-      const classes = snapNoOrder.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .sort((a: any, b: any) =>
-          (b.createdAt || "").localeCompare(a.createdAt || "")
-        );
+          // persist cache
+          try {
+            await this.writeClassesCache(teacherId, classes);
+          } catch (cacheErr) {
+            console.warn("Could not write classes cache:", cacheErr);
+          }
 
-      return { success: true, classes, needsIndex: true };
+          return { success: true, classes, needsIndex: true };
+        } catch (innerErr) {
+          console.error("Fallback un-ordered query failed:", innerErr);
+          // will fall through and try cache below
+        }
+      }
+
+      // For other errors (quota, network, etc.), attempt to return cached classes
+      try {
+        const cached = await this.readClassesCache(teacherId);
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          console.warn("Serving classes from server-side cache due to Firestore error.");
+          return { success: true, classes: cached, cached: true, message: "Served from cache due to backend error." };
+        }
+      } catch (cacheReadErr) {
+        console.warn("Failed to read classes cache:", cacheReadErr);
+      }
+
+      // Nothing worked: return a structured failure so controllers can decide how to surface it
+      return { success: false, message: e?.message || "Failed to fetch classes (and cache missing)." };
     }
   }
 
@@ -532,6 +609,17 @@ export class TeacherService {
       }
     }
 
+    // Attempt to update server-side cache (best-effort)
+    try {
+      const cached = await this.readClassesCache(teacherId).catch(() => null);
+      if (Array.isArray(cached)) {
+        const newCache = cached.map(c => (c.id === classId ? { id: classId, ...updated } : c));
+        await this.writeClassesCache(teacherId, newCache);
+      }
+    } catch (cacheErr) {
+      console.warn("Failed to update classes cache after updateClass:", cacheErr);
+    }
+
     return { success: true, message: "Class updated successfully" };
   }
 
@@ -595,6 +683,17 @@ export class TeacherService {
           subjects: FieldValue.arrayRemove(subjectToMaybeRemove),
         });
       }
+    }
+
+    // update cache (best effort)
+    try {
+      const cached = await this.readClassesCache(teacherId).catch(() => null);
+      if (Array.isArray(cached)) {
+        const newCache = cached.filter(c => c.id !== classId);
+        await this.writeClassesCache(teacherId, newCache);
+      }
+    } catch (cacheErr) {
+      console.warn("Failed to update classes cache after deleteClass:", cacheErr);
     }
 
     return { success: true, message: "Class deleted successfully" };

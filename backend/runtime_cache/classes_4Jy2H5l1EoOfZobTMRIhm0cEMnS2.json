@@ -1,0 +1,65 @@
+{
+  "ts": "2025-11-14T09:34:50.622Z",
+  "classes": [
+    {
+      "id": "ts2R43xniVKkRqyfC0dI",
+      "name": "Komunikasyon BM1MA-11",
+      "subjectName": "Komunikasyon",
+      "teacherId": "4Jy2H5l1EoOfZobTMRIhm0cEMnS2",
+      "roomNumber": "ROOM-1",
+      "section": "BM1MA",
+      "gradeLevel": "11",
+      "days": "Monday",
+      "time_start": {
+        "_seconds": 1763101380,
+        "_nanoseconds": 0
+      },
+      "time_end": {
+        "_seconds": 1763109840,
+        "_nanoseconds": 0
+      },
+      "createdAt": "2025-11-14T06:19:00.461Z",
+      "updatedAt": "2025-11-14T06:19:00.461Z"
+    },
+    {
+      "id": "E4zlyKcgPTziR6rDNial",
+      "name": "History of Cavite VS Tondo BM1MA-11",
+      "subjectName": "History of Cavite VS Tondo",
+      "teacherId": "4Jy2H5l1EoOfZobTMRIhm0cEMnS2",
+      "roomNumber": "ROOM-1",
+      "section": "BM1MA",
+      "gradeLevel": "11",
+      "createdAt": "2025-11-13T15:05:24.901Z",
+      "days": "Monday",
+      "time_start": {
+        "_seconds": 1763100000,
+        "_nanoseconds": 0
+      },
+      "time_end": {
+        "_seconds": 1763107200,
+        "_nanoseconds": 0
+      },
+      "updatedAt": "2025-11-14T08:24:38.525Z"
+    },
+    {
+      "id": "afNwuQgb36kcBwWfkzW8",
+      "name": "History of CVSU BM1MA-11",
+      "subjectName": "History of CVSU",
+      "teacherId": "4Jy2H5l1EoOfZobTMRIhm0cEMnS2",
+      "roomNumber": "ROOM-1",
+      "section": "BM1MA",
+      "gradeLevel": "11",
+      "createdAt": "2025-11-13T12:12:45.040Z",
+      "time_start": {
+        "_seconds": 1763100000,
+        "_nanoseconds": 0
+      },
+      "days": "Friday",
+      "time_end": {
+        "_seconds": 1763107200,
+        "_nanoseconds": 0
+      },
+      "updatedAt": "2025-11-13T23:17:13.456Z"
+    }
+  ]
+}

@@ -226,9 +226,72 @@ function getNextUpcomingClass(classes) {
   if (!classes || classes.length === 0) return null;
 
   const now = new Date();
-  const currentDay = now.toLocaleString("en-US", { weekday: "long" });
-  const currentTime = now.getHours() * 60 + now.getMinutes();
 
+  const toDateFromPossible = (val) => {
+    if (!val) return null;
+    // Firestore Timestamp
+    if (typeof val === "object" && typeof val.toDate === "function") return val.toDate();
+    if (val instanceof Date) return val;
+    if (typeof val === "string") return toISOWithOffset(val);
+    return null;
+  };
+
+  // Compact time formatter: "12pm" or "12:30pm" (lowercase am/pm), omit minutes when zero
+  const formatTime = (date) => {
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const h12 = hours % 12 === 0 ? 12 : hours % 12;
+    const minutePart = minutes ? `:${String(minutes).padStart(2, "0")}` : "";
+    const ampm = hours >= 12 ? "pm" : "am";
+    return `${h12}${minutePart}${ampm}`;
+  };
+
+  const formatRange = (start, end) => `${formatTime(start)} - ${formatTime(end)}`;
+
+  let nearestClass = null;
+  let nearestDiff = Infinity;
+
+  // First, prefer classes that have explicit time_start/time_end timestamps.
+  for (const cls of classes) {
+    const startDate = toDateFromPossible(cls.time_start || cls.timeStart || cls.timeStartDate);
+    const endDate = toDateFromPossible(cls.time_end || cls.timeEnd || cls.timeEndDate);
+
+    if (startDate && endDate) {
+      // If class is currently ongoing -> return immediately and label Today if same date
+      if (startDate <= now && now <= endDate) {
+        return {
+          ...cls,
+          dayLabel: areSameDate(startDate, now) ? "Today" : weekdayLabel(startDate),
+          // IMPORTANT: time is ALWAYS set to a compact time range string (no full date)
+          time: formatRange(startDate, endDate),
+          time_start: startDate,
+          time_end: endDate,
+        };
+      }
+
+      // If class is later than now, consider for nearest upcoming
+      if (startDate > now) {
+        const diff = startDate.getTime() - now.getTime();
+        if (diff < nearestDiff) {
+          nearestDiff = diff;
+          nearestClass = {
+            ...cls,
+            dayLabel: areSameDate(startDate, now) ? "Today" : weekdayLabel(startDate),
+            time: formatRange(startDate, endDate), // compact range
+            time_start: startDate,
+            time_end: endDate,
+          };
+        }
+      }
+      continue;
+    }
+
+    // If timestamps aren't present, fall through and try to handle legacy "time" strings later
+  }
+
+  if (nearestClass) return nearestClass;
+
+  // Fallback: handle classes defined with a "time" string like "8:00 AM - 10:00 AM" and recurring "days".
   const parseTime = (timeStr) => {
     if (!timeStr) return null;
     const [time, meridian] = timeStr.split(" ");
@@ -251,10 +314,9 @@ function getNextUpcomingClass(classes) {
     "Friday",
     "Saturday",
   ];
+  const currentDay = now.toLocaleString("en-US", { weekday: "long" });
   const todayIndex = daysOfWeek.indexOf(currentDay);
-
-  let nearestClass = null;
-  let nearestDiff = Infinity;
+  nearestDiff = Infinity;
 
   for (const cls of classes) {
     if (!cls?.days || !cls?.time || !cls.time.includes(" - ")) continue;
@@ -277,22 +339,52 @@ function getNextUpcomingClass(classes) {
       let diffDays = dayIndex - todayIndex;
       if (diffDays < 0) diffDays += 7;
 
-      const totalMinutesDiff = diffDays * 24 * 60 + start - currentTime;
-      const classEndDiff = diffDays * 24 * 60 + end - currentTime;
+      const totalMinutesDiff = diffDays * 24 * 60 + start - (now.getHours() * 60 + now.getMinutes());
+      const classEndDiff = diffDays * 24 * 60 + end - (now.getHours() * 60 + now.getMinutes());
 
       if (totalMinutesDiff <= 0 && classEndDiff > 0) {
-        return { ...cls, dayLabel: "Today" };
+        // convert startStr/endStr into compact form like "8am - 10am"
+        const compact = `${compactFromTimeString(startStr)} - ${compactFromTimeString(endStr)}`;
+        return {
+          ...cls,
+          dayLabel: "Today",
+          time: compact,
+        };
       }
 
       if (totalMinutesDiff > 0 && totalMinutesDiff < nearestDiff) {
         nearestDiff = totalMinutesDiff;
+        const compact = `${compactFromTimeString(startStr)} - ${compactFromTimeString(endStr)}`;
         nearestClass = {
           ...cls,
           dayLabel: diffDays === 0 ? "Today" : day,
+          time: compact,
         };
       }
     }
   }
 
   return nearestClass;
+}
+
+// helpers used in fallback compacting of legacy "8:00 AM" style strings => "8am" or "8:30am"
+function compactFromTimeString(timeStr) {
+  if (!timeStr) return "";
+  const parts = timeStr.trim().split(" ");
+  if (parts.length < 2) return timeStr.toLowerCase();
+  const [timePart, meridian] = parts;
+  const [h, m] = timePart.split(":");
+  const hour = Number(h);
+  const minute = Number(m || "0");
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const minutePart = minute ? `:${String(minute).padStart(2, "0")}` : "";
+  return `${h12}${minutePart}${meridian.toLowerCase()}`;
+}
+
+function areSameDate(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function weekdayLabel(date) {
+  return date.toLocaleString("en-US", { weekday: "long" });
 }

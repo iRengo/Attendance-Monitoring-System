@@ -3,12 +3,17 @@ import axios from "axios";
 import { convertTo12Hour } from "../../utils/time";
 import Swal from "sweetalert2";
 
+/**
+ * Resilient useClasses hook
+ * - caches last good classes in localStorage so UI can still render if backend fails
+ * - fetches student counts in a single batched request (preferred) or falls back to batched per-class calls
+ * - non-blocking on initial fetch failure (loads cached data if available)
+ */
+
 function convertTo24Hour(time12h) {
   if (!time12h) return "";
   const t = String(time12h).trim();
-  // Already 24h "HH:MM"
   if (/^\d{2}:\d{2}$/.test(t)) return t;
-  // Try to parse formats like "2:05 PM", "02:05 pm"
   const m = t.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
   if (!m) return t; // fallback
   let [_, hh, mm, ap] = m;
@@ -19,13 +24,16 @@ function convertTo24Hour(time12h) {
   return `${String(h).padStart(2, "0")}:${mm}`;
 }
 
+const CLASSES_CACHE_KEY = "teacher_classes_cache_v1";
+const COUNTS_CACHE_KEY = "teacher_class_counts_cache_v1";
+
 export default function useClasses(teacherId) {
   const [classes, setClasses] = useState([]);
   const [studentCounts, setStudentCounts] = useState({});
   const [classForm, setClassForm] = useState({
     id: null,
     subject: "",
-    room: "",          // maps to roomNumber only
+    room: "",
     section: "",
     gradeLevel: "",
     days: [],
@@ -37,7 +45,9 @@ export default function useClasses(teacherId) {
   const [isEditMode, setIsEditMode] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Load classes from server but fall back to cached copy if server fails
   useEffect(() => {
+    let cancelled = false;
     const fetchClasses = async () => {
       if (!teacherId) return;
       try {
@@ -45,42 +55,150 @@ export default function useClasses(teacherId) {
           params: { teacherId },
         });
         if (res.data.success) {
-          const cleaned = (res.data.classes || []).map(cls => {
-            // prune legacy fields if present
+          const cleaned = (res.data.classes || []).map((cls) => {
             const { roomId, ...rest } = cls;
             return rest;
           });
-          setClasses(cleaned);
-          if (res.data.needsIndex) {
-            console.warn("Firestore composite index missing for classes {teacherId, createdAt}.");
+          if (!cancelled) {
+            setClasses(cleaned);
+            try {
+              localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(cleaned));
+            } catch (e) {
+              console.warn("Could not persist classes to localStorage", e);
+            }
+            if (res.data.needsIndex) {
+              console.warn("Firestore composite index missing for classes {teacherId, createdAt}.");
+            }
           }
+        } else {
+          throw new Error(res.data.message || "Failed to fetch classes");
         }
       } catch (err) {
         console.error("Error fetching classes:", err);
-        Swal.fire({ icon: "error", title: "Error", text: "Error fetching classes." });
+        // Try load cached classes from localStorage
+        try {
+          const cached = localStorage.getItem(CLASSES_CACHE_KEY);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (!cancelled) {
+              setClasses(parsed);
+              console.warn("Loaded cached classes due to fetch error.");
+            }
+            // do not alarm the user with a blocking modal here; just log
+            return;
+          }
+        } catch (e) {
+          console.warn("Failed to read cached classes:", e);
+        }
+
+        // if no cached data, then show a lightweight non-blocking toast so user knows
+        // (avoid blocking promises during page render)
+        try {
+          Swal.fire({
+            icon: "warning",
+            title: "Unable to fetch classes",
+            text:
+              "Could not fetch classes from the server. Try again later. (Showing no classes.)",
+            timer: 2500,
+            showConfirmButton: false,
+            toast: true,
+            position: "top-end",
+          });
+        } catch (e) {
+          // ignore Swal errors in initial load
+        }
       }
     };
     fetchClasses();
+    return () => {
+      cancelled = true;
+    };
   }, [teacherId]);
 
+  // Fetch student counts in one request if possible, otherwise do batched requests.
+  // This effect is non-blocking — classes will render immediately without waiting for counts.
   useEffect(() => {
-    const fetchStudentCounts = async () => {
-      if (!teacherId || classes.length === 0) return;
+    let cancelled = false;
+    if (!teacherId || classes.length === 0) return;
+
+    const fetchCounts = async () => {
       try {
-        const counts = {};
-        for (const cls of classes) {
-          const res = await axios.get("http://localhost:3000/teacher/class-students", {
-            params: { teacherId, classId: cls.id },
+        const classIds = classes.map((c) => c.id);
+
+        // Preferred: single endpoint that returns counts for many classIds
+        try {
+          const res = await axios.post("http://localhost:3000/teacher/class-student-counts", {
+            teacherId,
+            classIds,
           });
-          counts[cls.id] = res.data.success ? res.data.students.length : 0;
+          if (res.data && res.data.success && res.data.counts) {
+            if (!cancelled) {
+              setStudentCounts(res.data.counts);
+              try {
+                localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(res.data.counts));
+              } catch (e) {
+                console.warn("Could not persist class counts", e);
+              }
+            }
+            return;
+          }
+        } catch (err) {
+          // endpoint may not exist or failed; fall back to per-class batched fetches
+          console.warn("Batch counts endpoint failed, falling back to batched per-class requests.", err);
         }
-        setStudentCounts(counts);
+
+        // Fallback: batched per-class calls with controlled concurrency and failure tolerance
+        const results = {};
+        const concurrency = 4; // tune as needed to avoid server spikes
+        const ids = classIds.slice();
+
+        const worker = async () => {
+          while (ids.length > 0 && !cancelled) {
+            const id = ids.shift();
+            try {
+              const res = await axios.get("http://localhost:3000/teacher/class-students", {
+                params: { teacherId, classId: id },
+              });
+              results[id] = res.data && res.data.success ? (res.data.students || []).length : 0;
+            } catch (err) {
+              console.warn("Failed fetching students for", id, err);
+              // try using cached counts for this class if present:
+              const cached = localStorage.getItem(COUNTS_CACHE_KEY);
+              if (cached) {
+                try {
+                  const parsed = JSON.parse(cached);
+                  if (typeof parsed[id] !== "undefined") {
+                    results[id] = parsed[id];
+                    continue;
+                  }
+                } catch (e) {
+                  // ignore
+                }
+              }
+              results[id] = 0; // safe fallback
+            }
+          }
+        };
+
+        // start workers
+        await Promise.all(new Array(concurrency).fill(0).map(() => worker()));
+        if (!cancelled) {
+          setStudentCounts(results);
+          try {
+            localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(results));
+          } catch (e) {
+            console.warn("Could not persist counts cache", e);
+          }
+        }
       } catch (err) {
         console.error("Error fetching student counts:", err);
-        Swal.fire({ icon: "error", title: "Error", text: "Error fetching student counts." });
       }
     };
-    fetchStudentCounts();
+
+    fetchCounts();
+    return () => {
+      cancelled = true;
+    };
   }, [classes, teacherId]);
 
   const handleSaveClass = async () => {
@@ -97,7 +215,6 @@ export default function useClasses(teacherId) {
       return;
     }
 
-    // Store as 12-hour strings for human readability (same as previous combined field)
     const startTime12 = convertTo12Hour(classForm.startTime);
     const endTime12 = convertTo12Hour(classForm.endTime);
     const daysString = classForm.days.join(", ");
@@ -123,8 +240,8 @@ export default function useClasses(teacherId) {
         );
 
         if (res.data.success) {
-          setClasses(prev =>
-            prev.map(cls =>
+          setClasses((prev) =>
+            prev.map((cls) =>
               cls.id === classForm.id
                 ? {
                     ...cls,
@@ -141,6 +258,25 @@ export default function useClasses(teacherId) {
                 : cls
             )
           );
+          try {
+            localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(
+              classes.map((c) => (c.id === classForm.id ? {
+                ...c,
+                subjectName: classForm.subject,
+                name: computedName,
+                teacherId,
+                roomNumber: classForm.room,
+                section: classForm.section,
+                gradeLevel: classForm.gradeLevel,
+                days: daysString,
+                time_start: startTime12,
+                time_end: endTime12,
+              } : c))
+            ));
+          } catch (e) {
+            // ignore localStorage write failure
+          }
+
           await Swal.fire({
             icon: "success",
             title: "Updated",
@@ -148,6 +284,8 @@ export default function useClasses(teacherId) {
             timer: 1400,
             showConfirmButton: false,
           });
+        } else {
+          throw new Error(res.data.message || "Update failed");
         }
       } else {
         const res = await axios.post("http://localhost:3000/teacher/add-class", {
@@ -163,21 +301,26 @@ export default function useClasses(teacherId) {
         });
 
         if (res.data.success) {
-          setClasses(prev => [
-            ...prev,
-            {
-              id: res.data.id,
-              subjectName: classForm.subject,
-              name: computedName,
-              teacherId,
-              roomNumber: classForm.room,
-              section: classForm.section,
-              gradeLevel: classForm.gradeLevel,
-              days: daysString,
-              time_start: startTime12,
-              time_end: endTime12,
-            },
-          ]);
+          const newCls = {
+            id: res.data.id,
+            subjectName: classForm.subject,
+            name: computedName,
+            teacherId,
+            roomNumber: classForm.room,
+            section: classForm.section,
+            gradeLevel: classForm.gradeLevel,
+            days: daysString,
+            time_start: startTime12,
+            time_end: endTime12,
+          };
+          setClasses((prev) => [...prev, newCls]);
+
+          try {
+            localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify([...classes, newCls]));
+          } catch (e) {
+            // ignore
+          }
+
           await Swal.fire({
             icon: "success",
             title: "Added",
@@ -185,6 +328,8 @@ export default function useClasses(teacherId) {
             timer: 1400,
             showConfirmButton: false,
           });
+        } else {
+          throw new Error(res.data.message || "Add failed");
         }
       }
 
@@ -202,7 +347,7 @@ export default function useClasses(teacherId) {
       setIsEditMode(false);
     } catch (err) {
       console.error(err);
-      await Swal.fire({ icon: "error", title: "Error", text: "Something went wrong." });
+      await Swal.fire({ icon: "error", title: "Error", text: err?.message || "Something went wrong." });
     } finally {
       setLoading(false);
     }
@@ -226,7 +371,13 @@ export default function useClasses(teacherId) {
         `http://localhost:3000/teacher/delete-class/${classId}?teacherId=${teacherId}`
       );
       if (res.data.success) {
-        setClasses(prev => prev.filter(cls => cls.id !== classId));
+        setClasses((prev) => prev.filter((cls) => cls.id !== classId));
+        // update cache
+        try {
+          localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes.filter((c) => c.id !== classId)));
+        } catch (e) {
+          // ignore
+        }
         await Swal.fire({
           icon: "success",
           title: "Deleted",
@@ -248,12 +399,11 @@ export default function useClasses(teacherId) {
   };
 
   const handleEditClass = (cls) => {
-    // Prefer new fields; fall back to legacy combined 'time'
     let start12 = cls.time_start || "";
     let end12 = cls.time_end || "";
 
     if ((!start12 || !end12) && cls.time) {
-      const [a, b] = String(cls.time).split(" - ").map(s => s?.trim());
+      const [a, b] = String(cls.time).split(" - ").map((s) => s?.trim());
       start12 = start12 || a || "";
       end12 = end12 || b || "";
     }
