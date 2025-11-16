@@ -97,12 +97,17 @@ export default function UserManagement() {
 
   /**
    * CSV Import:
-   * Backend currently returns { success: true, results: [...] }
-   * Each row in results should look like:
-   *   { schoolEmail, status: 'Created' | 'Failed' | 'Existing', type, error? }
+   * Backend now returns: addedCount, existingCount, updatedCount, failedCount, totalRows, results[]
+   * Each row in results looks like:
+   *   { schoolEmail, status: 'Created' | 'Updated' | 'Existing' | 'Failed', type, error? }
    *
-   * If backend does NOT mark duplicates as 'Existing', we infer duplicates by matching
-   * typical auth errors in the 'error' field (email-already-exists).
+   * NOTE: We compute counts from result.results when available (honoring server row-level statuses).
+   * This avoids relying on any possibly-stale numeric counts from the server.
+   *
+   * UX changes requested:
+   * - If nothing changed (rows reported Existing only), show "Account is already existing" (or plural)
+   *   instead of "Import completed".
+   * - If rows were Updated and no failures, show "Successfully updated existing account(s)" (not generic import text).
    */
   const handleImportCsv = async () => {
     if (!csvFile) return toast.error("Please select a CSV file first!");
@@ -117,48 +122,143 @@ export default function UserManagement() {
         method: "POST",
         body: formData,
       });
-      const result = await res.json();
+
+      // parse response JSON safely
+      let result;
+      try {
+        result = await res.json();
+      } catch (jsonErr) {
+        console.error("Failed to parse import CSV response JSON:", jsonErr);
+        toast.error("Import failed — server returned invalid JSON.");
+        return;
+      }
 
       if (!res.ok || !result.success) {
-        toast.error(result.message || "CSV import failed.");
+        // show server message if available
+        const msg = result?.message || "CSV import failed.";
+        toast.error(msg);
+        console.error("CSV import error response:", result);
+        return;
+      }
+
+      // Use per-row results if present
+      const rowResults = Array.isArray(result.results) ? result.results.slice() : [];
+
+      // Compute counts from authoritative per-row statuses first
+      let addedCount = 0;
+      let updatedCount = 0;
+      let existingCount = 0;
+      let failedCount = 0;
+      let totalRows = 0;
+
+      if (rowResults.length > 0) {
+        totalRows = rowResults.length;
+        rowResults.forEach((r) => {
+          const s = (r?.status || "").toString();
+          if (s === "Created") addedCount++;
+          else if (s === "Updated") updatedCount++;
+          else if (s === "Existing") existingCount++;
+          else if (s === "Failed") failedCount++;
+        });
       } else {
-        // The backend now returns: addedCount, existingCount, failedCount, totalRows, results[]
-        const {
-          addedCount = 0,
-          existingCount = 0,
-          failedCount = 0,
-          totalRows = 0,
-        } = result;
+        // fallback to numeric counts returned by server
+        addedCount = Number(result.addedCount || 0);
+        updatedCount = Number(result.updatedCount || 0);
+        existingCount = Number(result.existingCount || 0);
+        failedCount = Number(result.failedCount || 0);
+        totalRows = Number(result.totalRows || 0);
+      }
 
-        if (totalRows === 0) {
-          toast.info("CSV contained no valid rows.");
-        } else if (addedCount === 0 && existingCount > 0 && failedCount === 0) {
-          toast.info("Data already existing. No new records imported.");
-        } else if (addedCount === 0 && existingCount > 0 && failedCount > 0) {
-          toast.info(
-            `No new records. Existing: ${existingCount}, Failed: ${failedCount}`
-          );
-        } else if (addedCount > 0 && existingCount > 0 && failedCount === 0) {
-          toast.success(
-            `Import complete. Added: ${addedCount}, Existing: ${existingCount}`
-          );
-        } else if (addedCount > 0 && existingCount > 0 && failedCount > 0) {
-          toast.success(
-            `Import complete. Added: ${addedCount}, Existing: ${existingCount}, Failed: ${failedCount}`
-          );
-        } else if (addedCount > 0 && existingCount === 0 && failedCount === 0) {
-          toast.success(`CSV import completed. Added: ${addedCount}`);
-        } else if (addedCount > 0 && failedCount > 0 && existingCount === 0) {
-          toast.success(
-            `Import done. Added: ${addedCount}, Failed: ${failedCount}`
-          );
-        } else if (addedCount === 0 && existingCount === 0 && failedCount > 0) {
-          toast.error(`All rows failed. Failed: ${failedCount}`);
+      // Decision tree for user-friendly toasts per user's request
+      if (totalRows === 0) {
+        toast.info("CSV contained no valid rows.");
+      } else if (failedCount > 0) {
+        // there are failures -> show warning and log details (modal handled elsewhere)
+        const parts = [];
+        if (addedCount > 0) parts.push(`Added: ${addedCount}`);
+        if (updatedCount > 0) parts.push(`Updated: ${updatedCount}`);
+        if (existingCount > 0) parts.push(`Existing: ${existingCount}`);
+        if (failedCount > 0) parts.push(`Failed: ${failedCount}`);
+        const summary = parts.join(", ");
+        toast.warn(`Import completed with some issues — ${summary}`);
+        console.warn("CSV import row results:", rowResults);
+      } else {
+        // No failures — show specific messages per requested UX
+        if (updatedCount > 0 && addedCount === 0) {
+          // Only updates (no creations)
+          if (updatedCount === 1) {
+            toast.success("Successfully updated an existing account.");
+          } else {
+            toast.success(`Successfully updated ${updatedCount} existing accounts.`);
+          }
+        } else if (existingCount > 0 && addedCount === 0 && updatedCount === 0) {
+          // Nothing changed — only existing
+          if (existingCount === 1) {
+            toast.info("Account is already existing.");
+          } else {
+            toast.info(`${existingCount} accounts already exist.`);
+          }
         } else {
-          toast.success("CSV import completed!");
+          // Mixed or creations present — fall back to a concise summary
+          const parts = [];
+          if (addedCount > 0) parts.push(`Added: ${addedCount}`);
+          if (updatedCount > 0) parts.push(`Updated: ${updatedCount}`);
+          if (existingCount > 0) parts.push(`Existing: ${existingCount}`);
+          const summary = parts.length ? parts.join(", ") : "No changes";
+          toast.success(`Import completed — ${summary}`);
         }
+      }
 
-        // Removed duplicate logActivity() call here.
+      // If there are failed rows, show the modal with details (unchanged behavior)
+      const stillFailed = rowResults.filter((r) => String(r?.status) === "Failed");
+      if (stillFailed.length > 0) {
+        const makeListHtml = (arr, title) => {
+          const items = arr.slice(0, 200).map((r) => {
+            const school = escapeHtml(String(r.schoolEmail || r.school_email || ""));
+            const err = r.error ? ` — ${escapeHtml(String(r.error))}` : "";
+            return `<li><strong>${school}</strong>${err}</li>`;
+          });
+          const more = arr.length > 200 ? `<li>...and ${arr.length - 200} more</li>` : "";
+          return `<div style="margin-bottom:8px"><strong>${escapeHtml(title)} (${arr.length})</strong><ul style="margin-top:6px;margin-left:18px">${items.join("")}${more}</ul></div>`;
+        };
+
+        const htmlContent =
+          `<div style="max-height:480px;overflow:auto;text-align:left">` +
+          makeListHtml(stillFailed, "Failed") +
+          `</div>`;
+
+        await Swal.fire({
+          title: `Import results — ${failedCount > 0 ? `Failed: ${failedCount}` : "Results"}`,
+          html: htmlContent,
+          width: "800px",
+          showCloseButton: true,
+          showCancelButton: false,
+          showConfirmButton: true,
+          confirmButtonText: "Copy failed rows",
+          focusConfirm: false,
+          preConfirm: () => {
+            const csvHeader = "schoolEmail,status,type,error\n";
+            const csvLines = stillFailed.map((r) => {
+              const cols = [
+                (r.schoolEmail || r.school_email || "").replace(/"/g, '""'),
+                (r.status || "").replace(/"/g, '""'),
+                (r.type || "").replace(/"/g, '""'),
+                (r.error || "").replace(/"/g, '""'),
+              ];
+              return `"${cols.join('","')}"`;
+            });
+            const csvText = csvHeader + csvLines.join("\n");
+            return navigator.clipboard
+              .writeText(csvText)
+              .then(() => ({ copied: true }))
+              .catch((e) => ({ copied: false, error: String(e) }));
+          },
+        }).then((modalResult) => {
+          if (modalResult.isConfirmed && modalResult.value) {
+            if (modalResult.value.copied) toast.success("Failed rows copied to clipboard (CSV)");
+            else toast.error("Failed to copy failed rows to clipboard.");
+          }
+        });
       }
 
       await fetchAllAccounts();
@@ -426,4 +526,15 @@ export default function UserManagement() {
       )}
     </AdminLayout>
   );
+}
+
+/* ----------------- Helpers ----------------- */
+
+function escapeHtml(str = "") {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }

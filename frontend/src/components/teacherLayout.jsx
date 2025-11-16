@@ -311,8 +311,8 @@ export default function TeacherLayout({ title, children }) {
               </div>
 
               {showAlertsDropdown && (
-                <div className="absolute right-0 mt-3 w-96 bg-white rounded-md shadow-lg border z-50">
-                  <div className="p-3 font-semibold text-[#415CA0] border-b">Attendance Alerts</div>
+                <div className="absolute right-0 mt-3 w-96 bg-[#3996e9] rounded-md shadow-lg border z-50">
+                  <div className="p-3 font-semibold text-[#fff] border-b">Attendance Alerts</div>
                   {alertStudents.length === 0 && (
                     <div className="p-3 text-sm text-gray-500">No attendance alerts.</div>
                   )}

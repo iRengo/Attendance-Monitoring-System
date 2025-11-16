@@ -82,19 +82,17 @@ export default function AdminLayout({ title, children }) {
   useEffect(() => {
     const fetchNotifications = async () => {
       try {
-        const q = query(
-          collection(db, "kiosk_notifications"),
-          where("kiosk_id", "==", "kiosk-201")
-        );
+        const snap = await getDocs(collection(db, "kiosk_notifications"));
 
-        const snap = await getDocs(q);
         const results = [];
 
         snap.forEach((docItem) =>
           results.push({ id: docItem.id, ...docItem.data() })
         );
-
-        setNotifications(results);
+        
+        // reverse so newest goes to the bottom
+        setNotifications(results.reverse());
+        
       } catch (error) {
         console.error("Error fetching notifications:", error);
       }
@@ -199,76 +197,61 @@ export default function AdminLayout({ title, children }) {
 
           <div className="flex items-center gap-6">
             {/* 🔔 NOTIFICATIONS */}
-            {/* 🔔 ALERT BELL */}
-<div className="relative">
-  <button
-    className="p-2 rounded-full hover:bg-gray-100 transition"
-    onClick={() => setShowAlertsDropdown(prev => !prev)}
-  >
-    <Bell size={23} className="text-[#415CA0]" />
-    {alertStudents.filter(s => !readAlerts.includes(s.studentId)).length > 0 && (
-      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
-        {alertStudents.filter(s => !readAlerts.includes(s.studentId)).length}
-      </span>
-    )}
-  </button>
+            <div className="relative">
+              <button
+                className="p-2 rounded-full hover:bg-gray-100 transition"
+                onClick={() => setNotifOpen((prev) => !prev)}
+              >
+                <Bell size={22} className="text-[#415CA0]" />
+              </button>
 
-  {showAlertsDropdown && (
-    <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-white border rounded-md shadow-lg z-50">
-      <div className="p-3 font-semibold text-[#415CA0] border-b">
-        Attendance Alerts
-      </div>
-
-      {alertStudents.length === 0 ? (
-        <p className="text-center text-gray-500 py-3">No alerts</p>
-      ) : (
-        alertStudents.map((s, idx) => {
-          const isRead = readAlerts.includes(s.studentId);
-
-          return (
-            <div
-              key={s.studentId}
-              onClick={() => {
-                // mark as read
-                if (!readAlerts.includes(s.studentId)) {
-                  const updated = [...readAlerts, s.studentId];
-                  setReadAlerts(updated);
-                  localStorage.setItem("readAlerts", JSON.stringify(updated));
-                }
-                // optionally: do something else when clicked
-              }}
-              className={`px-4 py-3 border-b cursor-pointer transition ${
-                isRead ? "bg-white" : "bg-blue-50"
-              } hover:bg-blue-100`}
-            >
-              <p className="text-lg font-medium text-gray-900">{s.fullname}</p>
-              {s.subjectName && (
-                <p className="text-sm text-gray-500 mb-1">
-                  Subject: {s.subjectName}
-                </p>
+              {/* Badge for unread notifications */}
+              {unreadCount > 0 && (
+                <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full px-1">
+                  {unreadCount}
+                </span>
               )}
-              {s.guardianname && (
-                <p className="text-sm text-gray-500 mb-1">
-                  Guardian: {s.guardianname} ({s.guardiancontact})
-                </p>
+
+              {notifOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white border shadow-lg z-50 max-h-96 overflow-y-auto">
+
+                  {/* 🔵 KIOSK NOTIFICATIONS HEADER */}
+                  <div className="px-4 py-4 bg-[#3996e9] text-white font-semibold text-md sticky top-0">
+                    Kiosk Notifications
+                  </div>
+
+                  {notifications.length === 0 ? (
+                    <p className="text-center text-gray-500 py-3">
+                      No notifications
+                    </p>
+                  ) : (
+                    notifications.map((notif) => {
+                      const isRead = readNotifs.includes(notif.id);
+
+                      return (
+                        <div
+                          key={notif.id}
+                          onClick={() => markAsRead(notif.id)}
+                          className={`px-4 py-3 border-b cursor-pointer transition ${
+                            isRead ? "bg-white" : "bg-blue-50"
+                          } hover:bg-gray-100`}
+                        >
+                          <p className="font-semibold text-[#32487E]">
+                            {notif.title}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Room: {notif.room}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {notif.timestamp}
+                          </p>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               )}
-              <p className="text-sm text-gray-600">
-                • Absents: <strong>{s.absent}</strong>
-              </p>
-              <p className="text-sm text-gray-600">
-                • Lates: <strong>{s.late}</strong>
-              </p>
-              <p className="mt-1 text-xs text-red-600 font-semibold">
-                {s.absent >= 3 ? "❗ Reached 3 Absences" : "⚠️ Reached 3 Lates"}
-              </p>
             </div>
-          );
-        })
-      )}
-    </div>
-  )}
-</div>
-
 
             {/* ADMIN PROFILE */}
             <div className="relative">

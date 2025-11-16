@@ -14,10 +14,10 @@ export default function PresencePie({ presenceData, attendancePercent }) {
             <Pie
               data={presenceData}
               cx="50%"
-              cy="50%"
+              cy="60%"
               innerRadius={60}
               outerRadius={80}
-              paddingAngle={3}
+              paddingAngle={0}
               dataKey="value"
             >
               {presenceData.map((entry, index) => (

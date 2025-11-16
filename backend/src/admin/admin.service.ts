@@ -27,17 +27,17 @@ export interface TeacherComplianceRow {
 }
 
 export interface MonthlySummaryRow {
-  month: string;            // e.g. "June"
+  month: string; // e.g. "June"
   totalDays: number;
   avgAttendancePercent: number;
   totalAbsences: number;
   lateEntries: number;
-  totalPresents: number;    // NEW
+  totalPresents: number; // NEW
 }
 
 export type CsvImportResult = {
   schoolEmail: string;
-  status: 'Created' | 'Existing' | 'Failed';
+  status: 'Created' | 'Existing' | 'Failed' | 'Updated';
   type: 'students' | 'teachers';
   error?: string;
 };
@@ -47,6 +47,7 @@ export type CsvImportResponse = {
   results: CsvImportResult[];
   addedCount: number;
   existingCount: number;
+  updatedCount: number;
   failedCount: number;
   totalRows: number;
 };
@@ -80,113 +81,219 @@ export class AdminService {
   }
 
   /* ---------------- CSV Import ---------------- */
-  async importCSV(file: Express.Multer.File): Promise<CsvImportResponse> {
-    if (!file) throw new BadRequestException('No file uploaded');
+  // Replace the importCSV(...) method in AdminService with this function.
 
-    const rows: any[] = [];
-    const responses: CsvImportResult[] = [];
+async importCSV(file: Express.Multer.File): Promise<CsvImportResponse> {
+  if (!file) throw new BadRequestException('No file uploaded');
 
-    const fileName = file.originalname.toLowerCase();
-    let collectionName: 'students' | 'teachers';
-    if (fileName.includes('student')) collectionName = 'students';
-    else if (fileName.includes('teacher')) collectionName = 'teachers';
-    else throw new BadRequestException('CSV name must contain "student" or "teacher"');
+  const rows: any[] = [];
+  const responses: CsvImportResult[] = [];
 
-    return new Promise((resolve, reject) => {
-      fs.createReadStream(file.path)
-        .pipe(csvParser())
-        .on('data', (data) => {
-          const normalized: any = {};
-          for (const key in data) {
-            const cleanKey = key.trim().toLowerCase().replace(/\s+/g, '_');
-            normalized[cleanKey] = data[key]?.trim();
-          }
-          if (normalized['studentid'] && !normalized['studentId']) {
-            normalized.studentId = normalized['studentid'];
-            delete normalized['studentid'];
-          }
-          if (normalized['student_id'] && !normalized['studentId']) {
-            normalized.studentId = normalized['student_id'];
-            delete normalized['student_id'];
-          }
-          rows.push(normalized);
-        })
-        .on('end', async () => {
-          try {
-            for (const row of rows) {
-              const firstName = row['firstname'] || '';
-              const lastName = row['lastname'] || '';
-              const personalEmail = row['personal_email'] || row['email'] || '';
-              if (!firstName || !lastName || !personalEmail) continue;
+  const fileName = file.originalname.toLowerCase();
+  let collectionName: 'students' | 'teachers';
+  if (fileName.includes('student')) collectionName = 'students';
+  else if (fileName.includes('teacher')) collectionName = 'teachers';
+  else throw new BadRequestException('CSV name must contain "student" or "teacher"');
 
-              const schoolEmail = `${firstName}.${lastName}@aics.edu.ph`.toLowerCase();
-              const tempPassword = this.generateRandomPassword();
+  // normalize header + keys
+  const normalizeKey = (key: string) =>
+    key.trim().replace(/\uFEFF/g, '').replace(/([a-z])([A-Z])/g, '$1_$2').replace(/[\s-]+/g, '_').toLowerCase();
 
-              let alreadyExists = false;
-              try { await this.auth.getUserByEmail(schoolEmail); alreadyExists = true; }
-              catch { alreadyExists = false; }
+  return new Promise((resolve, reject) => {
+    let rowIndex = 0;
+    fs.createReadStream(file.path)
+      .pipe(csvParser())
+      .on('data', (data) => {
+        const normalized: any = {};
+        for (const key in data) {
+          const cleanKey = normalizeKey(key || '');
+          normalized[cleanKey] = typeof data[key] === 'string' ? data[key].trim() : data[key];
+        }
+        // normalize student id variants
+        if (normalized['studentid'] && !normalized['student_id']) {
+          normalized['student_id'] = normalized['studentid'];
+          delete normalized['studentid'];
+        }
+        // skip fully-empty rows
+        const hasAny = Object.values(normalized).some((v) => v !== undefined && String(v).trim() !== '');
+        if (!hasAny) return;
+        rowIndex++;
+        normalized.__rowIndex = rowIndex;
+        rows.push(normalized);
+      })
+      .on('end', async () => {
+        try {
+          for (const row of rows) {
+            const rowNum = row.__rowIndex || undefined;
 
-              if (alreadyExists) {
-                responses.push({ schoolEmail, status: 'Existing', type: collectionName });
-                continue;
+            // Extract common fields (may be empty)
+            const firstNameRaw = (row['firstname'] || row['first_name'] || '').toString().trim();
+            const lastNameRaw = (row['lastname'] || row['last_name'] || '').toString().trim();
+            const personalEmailRaw = (row['personal_email'] || row['email'] || '').toString().trim();
+
+            // construct schoolEmail guess (may be ".@aics.edu.ph" if name is missing)
+            const schoolEmailGuess =
+              (firstNameRaw || lastNameRaw)
+                ? `${firstNameRaw}.${lastNameRaw}`.replace(/\s+/g, '').toLowerCase() + '@aics.edu.ph'
+                : '';
+
+            // First attempt: find an existing Firestore document to update
+            let existingDoc: FirebaseFirestore.DocumentSnapshot | null = null;
+            let existingDocRef: FirebaseFirestore.DocumentReference | null = null;
+
+            // prefer explicit student id in CSV
+            const studentIdCandidate = String(row['student_id'] || row['studentid'] || row['studentId'] || '').trim();
+
+            try {
+              if (studentIdCandidate) {
+                const q = await this.db.collection(collectionName).where('studentId', '==', studentIdCandidate).limit(1).get();
+                if (!q.empty) {
+                  existingDoc = q.docs[0];
+                  existingDocRef = this.db.collection(collectionName).doc(existingDoc.id);
+                }
               }
+              // if not found, try matching by school_email if CSV includes it or we can guess it
+              if (!existingDoc) {
+                const emailToMatch =
+                  (row['school_email'] || row['schoolEmail'] || schoolEmailGuess || '').toString().toLowerCase().trim();
+                if (emailToMatch) {
+                  const q2 = await this.db.collection(collectionName).where('school_email', '==', emailToMatch).limit(1).get();
+                  if (!q2.empty) {
+                    existingDoc = q2.docs[0];
+                    existingDocRef = this.db.collection(collectionName).doc(existingDoc.id);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Error querying existing doc:', err);
+              // continue — we will either create new or mark failed later
+            }
 
+            // If existing doc found -> update changed fields (no personal_email required)
+            if (existingDoc && existingDocRef) {
               try {
-                const user = await this.auth.createUser({
-                  email: schoolEmail,
-                  password: tempPassword,
-                  displayName: `${firstName} ${lastName}`,
-                });
+                const existingData: any = existingDoc.data() || {};
+                const updates: any = {};
+                for (const k of Object.keys(row)) {
+                  if (k === '__rowIndex') continue;
+                  const csvVal = row[k];
+                  if (csvVal === undefined || csvVal === null) continue;
+                  if (typeof csvVal === 'string' && csvVal.trim() === '') continue; // don't clear fields
+                  const existingVal = existingData[k];
+                  if (String(existingVal || '').trim() !== String(csvVal).trim()) {
+                    updates[k] = csvVal;
+                  }
+                }
 
-                await this.db.collection(collectionName).doc(user.uid).set({
-                  ...row,
-                  school_email: schoolEmail,
-                  temp_password: tempPassword,
-                  createdAt: new Date().toISOString(),
-                  status: 'approved',
-                });
-
-                try {
-                  await this.sendCredentials(personalEmail, schoolEmail, tempPassword);
-                } catch (emailErr) {
-                  console.error(`Failed to send credentials to ${personalEmail}:`, emailErr);
+                if (Object.keys(updates).length > 0) {
+                  updates.updatedAt = new Date().toISOString();
+                  await existingDocRef.update(updates);
                   await this.logActivity(
-                    'Email Send Failed',
-                    `To: ${personalEmail} (${schoolEmail}) — ${(emailErr as Error).message}`,
+                    `Updated ${collectionName.slice(0, -1)}`,
+                    `Updated ${collectionName.slice(0, -1)} ${existingData.firstname || ''} ${existingData.lastname || ''} (${existingDoc.id}) via CSV import: ${JSON.stringify(updates)}`
                   );
-                }
-
-                responses.push({ schoolEmail, status: 'Created', type: collectionName });
-              } catch (err: any) {
-                const msg = err?.message || '';
-                if (msg.includes('email-already-exists') || msg.toLowerCase().includes('already exists')) {
-                  responses.push({ schoolEmail, status: 'Existing', type: collectionName });
+                  responses.push({ schoolEmail: existingData.school_email || schoolEmailGuess, status: 'Updated', type: collectionName });
                 } else {
-                  responses.push({ schoolEmail, status: 'Failed', type: collectionName, error: msg });
+                  responses.push({ schoolEmail: existingData.school_email || schoolEmailGuess, status: 'Existing', type: collectionName });
                 }
+                continue; // processed this row
+              } catch (err: any) {
+                console.error('Failed updating existing doc:', err);
+                responses.push({
+                  schoolEmail: existingDoc.data()?.school_email || schoolEmailGuess,
+                  status: 'Failed',
+                  type: collectionName,
+                  error: err?.message || String(err),
+                });
+                continue;
               }
             }
 
-            const addedCount = responses.filter(r => r.status === 'Created').length;
-            const existingCount = responses.filter(r => r.status === 'Existing').length;
-            const failedCount = responses.filter(r => r.status === 'Failed').length;
-            const totalRows = rows.length;
+            // No existing doc found -> TRY create new auth user + firestore doc.
+            // For creation we require firstname, lastname, personal_email (same as before)
+            const firstName = firstNameRaw;
+            const lastName = lastNameRaw;
+            const personalEmail = personalEmailRaw;
 
-            await this.logActivity(
-              `Imported ${collectionName}`,
-              `Rows: ${totalRows} — Created: ${addedCount}, Existing: ${existingCount}, Failed: ${failedCount}`,
-            );
+            if (!firstName || !lastName || !personalEmail) {
+              // This row is not updatable (no existing doc) and missing required fields for creation -> fail
+              responses.push({
+                schoolEmail: schoolEmailGuess || `${firstName}.${lastName}@aics.edu.ph`.toLowerCase(),
+                status: 'Failed',
+                type: collectionName,
+                error: 'Missing required firstname/lastname/personal_email for new account',
+              });
+              continue;
+            }
 
-            resolve({ success: true, results: responses, addedCount, existingCount, failedCount, totalRows });
-          } catch (err) {
-            reject(err);
-          } finally {
-            fs.unlink(file.path, () => {});
-          }
-        })
-        .on('error', (err) => reject(err));
-    });
-  }
+            // create auth user + firestore doc
+            try {
+              const tempPassword = this.generateRandomPassword();
+              const createdSchoolEmail = `${firstName}.${lastName}`.replace(/\s+/g, '').toLowerCase() + '@aics.edu.ph';
+
+              // create auth user
+              const user = await this.auth.createUser({
+                email: createdSchoolEmail,
+                password: tempPassword,
+                displayName: `${firstName} ${lastName}`,
+              });
+
+              const docRef = this.db.collection(collectionName).doc(user.uid);
+              await docRef.set({
+                ...row,
+                firstname: firstName,
+                lastname: lastName,
+                school_email: createdSchoolEmail,
+                temp_password: tempPassword,
+                createdAt: new Date().toISOString(),
+                status: 'approved',
+              });
+
+              // send credentials (best-effort)
+              try {
+                await this.sendCredentials(personalEmail, createdSchoolEmail, tempPassword);
+              } catch (emailErr) {
+                console.error(`Failed to send credentials to ${personalEmail}:`, emailErr);
+                await this.logActivity('Email Send Failed', `To: ${personalEmail} (${createdSchoolEmail}) — ${(emailErr as Error).message}`);
+              }
+
+              responses.push({ schoolEmail: createdSchoolEmail, status: 'Created', type: collectionName });
+            } catch (err: any) {
+              const msg = err?.message || '';
+              console.error('Failed creating auth+doc:', err);
+              if (msg.includes('email-already-exists') || msg.toLowerCase().includes('already exists')) {
+                responses.push({ schoolEmail: schoolEmailGuess, status: 'Existing', type: collectionName });
+              } else {
+                responses.push({ schoolEmail: schoolEmailGuess, status: 'Failed', type: collectionName, error: String(msg) });
+              }
+            }
+          } // end for rows
+
+          // compute counts and finish
+          const addedCount = responses.filter((r) => r.status === 'Created').length;
+          const existingCount = responses.filter((r) => r.status === 'Existing').length;
+          const updatedCount = responses.filter((r) => r.status === 'Updated').length;
+          const failedCount = responses.filter((r) => r.status === 'Failed').length;
+          const totalRows = rows.length;
+
+          await this.logActivity(
+            `Imported ${collectionName}`,
+            `Rows: ${totalRows} — Created: ${addedCount}, Updated: ${updatedCount}, Existing: ${existingCount}, Failed: ${failedCount}`,
+          );
+
+          resolve({ success: true, results: responses, addedCount, existingCount, updatedCount, failedCount, totalRows });
+        } catch (err) {
+          reject(err);
+        } finally {
+          fs.unlink(file.path, () => {});
+        }
+      })
+      .on('error', (err) => {
+        fs.unlink(file.path, () => {});
+        reject(err);
+      });
+  });
+}
 
   /* ---------------- Student Management ---------------- */
   async addStudent(data: any) {
@@ -197,10 +304,12 @@ export class AdminService {
       normalized[cleanKey] = typeof value === 'string' ? value.trim() : value;
     }
     if (normalized.studentid && !normalized.studentId) {
-      normalized.studentId = normalized.studentid; delete normalized.studentid;
+      normalized.studentId = normalized.studentid;
+      delete normalized.studentid;
     }
     if (normalized.student_id && !normalized.studentId) {
-      normalized.studentId = normalized.student_id; delete normalized.student_id;
+      normalized.studentId = normalized.student_id;
+      delete normalized.student_id;
     }
 
     const firstname = normalized['firstname'];
@@ -228,10 +337,14 @@ export class AdminService {
         status: 'approved',
       });
 
-      try { await this.sendCredentials(personalEmail, schoolEmail, tempPassword); }
-      catch (emailErr) {
+      try {
+        await this.sendCredentials(personalEmail, schoolEmail, tempPassword);
+      } catch (emailErr) {
         console.error(`Failed to send credentials to ${personalEmail}:`, emailErr);
-        await this.logActivity('Email Send Failed', `To: ${personalEmail} (${schoolEmail}) — ${(emailErr as Error).message}`);
+        await this.logActivity(
+          'Email Send Failed',
+          `To: ${personalEmail} (${schoolEmail}) — ${(emailErr as Error).message}`,
+        );
       }
 
       await this.logActivity('Added Student', `Created student ${firstname} ${lastname} (${schoolEmail})`);
@@ -363,9 +476,9 @@ export class AdminService {
     const sessions = await this.querySessionsInRange(from, to);
     const stats: Record<string, { present: number; absent: number; late: number }> = {};
     const studentIds = new Set<string>();
-    sessions.forEach(sess => {
+    sessions.forEach((sess) => {
       const entries = this.extractEntries(sess);
-      entries.forEach(e => {
+      entries.forEach((e) => {
         if (!e.studentId) return;
         if (studentId && e.studentId !== studentId) return;
         studentIds.add(e.studentId);
@@ -388,7 +501,9 @@ export class AdminService {
           const full = `${first} ${middle} ${last}`.replace(/\s+/g, ' ').trim() || sid;
           infoMap[sid] = { name: full, gradeLevel: d.gradelevel || d.gradeLevel || '', section: d.section || '' };
         } else infoMap[sid] = { name: sid, gradeLevel: '', section: '' };
-      } catch { infoMap[sid] = { name: sid, gradeLevel: '', section: '' }; }
+      } catch {
+        infoMap[sid] = { name: sid, gradeLevel: '', section: '' };
+      }
     }
     const rows: StudentAttendanceRow[] = Object.entries(stats).map(([sid, s]) => {
       const total = s.present + s.absent + s.late;
@@ -411,15 +526,12 @@ export class AdminService {
 
   /* ---------------- UPDATED: Teacher Compliance Reports ---------------- */
 
-  // Helper: fetch attendance docs for a teacher between from/to (inclusive).
-  // Explicitly returns Promise<any[]> and casts document data to `any`.
   private async getTeacherAttendanceDocsBetween(teacherId: string, fromDate: string, toDate: string): Promise<any[]> {
     const collRef = this.db.collection('teachers').doc(teacherId).collection('attendance');
     const snap = await collRef.get();
     const fromMs = new Date(fromDate + 'T00:00:00Z').getTime();
     const toMs = new Date(toDate + 'T23:59:59Z').getTime();
 
-    // Map docs to `any` to ensure properties are accessible
     const docsArray: any[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as any));
 
     const results: any[] = [];
@@ -435,41 +547,34 @@ export class AdminService {
     return results;
   }
 
-  // Helper: fetch all attendance docs for a teacher
   private async getTeacherAllAttendanceDocs(teacherId: string): Promise<any[]> {
     const collRef = this.db.collection('teachers').doc(teacherId).collection('attendance');
     const snap = await collRef.get();
-    // Cast each doc's data to any
     return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as any));
   }
 
-  // Build teacher compliance report for a given date range.
   async buildTeacherComplianceReport(from: string, to: string, teacherId?: string) {
-    // Determine teacher IDs to process
     let teacherIds: string[] = [];
     if (teacherId) {
       teacherIds = [teacherId];
     } else {
       const tSnap = await this.db.collection('teachers').get();
-      teacherIds = tSnap.docs.map(d => d.id);
+      teacherIds = tSnap.docs.map((d) => d.id);
     }
 
-    const daysInRange = enumerateDates(from, to).filter(d => d.getDay() !== 0).length;
+    const daysInRange = enumerateDates(from, to).filter((d) => d.getDay() !== 0).length;
 
     const rows: TeacherComplianceRow[] = [];
 
     for (const tid of teacherIds) {
-      // fetch attendance docs for this teacher in range
       const docs = await this.getTeacherAttendanceDocsBetween(tid, from, to);
 
-      // Now count only present/late as submitted and also collect subjects in the same loop
       let submitted = 0;
       const subjectSet = new Set<string>();
       for (const doc of docs as any[]) {
         const st = (doc.status || '').toLowerCase();
         if (st === 'present' || st === 'late') submitted++;
 
-        // prefer class subject if classId exists
         let subj = 'Subject';
         if (doc.classId) {
           try {
@@ -485,7 +590,6 @@ export class AdminService {
         subjectSet.add(subj);
       }
 
-      // resolve teacher display name
       let teacherName = tid;
       try {
         const snap = await this.db.collection('teachers').doc(tid).get();
@@ -517,15 +621,13 @@ export class AdminService {
     return rows;
   }
 
-  // Build teacher compliance report for all time (overall).
   async buildTeacherComplianceReportAll(teacherId?: string) {
-    // Determine teacher IDs to process
     let teacherIds: string[] = [];
     if (teacherId) {
       teacherIds = [teacherId];
     } else {
       const tSnap = await this.db.collection('teachers').get();
-      teacherIds = tSnap.docs.map(d => d.id);
+      teacherIds = tSnap.docs.map((d) => d.id);
     }
 
     const rows: TeacherComplianceRow[] = [];
@@ -533,7 +635,6 @@ export class AdminService {
     for (const tid of teacherIds) {
       const docs = await this.getTeacherAllAttendanceDocs(tid);
 
-      // aggregate submitted count, unique days and subjects
       let submitted = 0;
       const uniqueDays = new Set<string>();
       const subjects = new Set<string>();
@@ -562,7 +663,6 @@ export class AdminService {
         if (doc.room) subjects.add(String(doc.room).trim() || 'Subject');
       }
 
-      // resolve teacher display name
       let teacherName = tid;
       try {
         const snap = await this.db.collection('teachers').doc(tid).get();
@@ -596,8 +696,11 @@ export class AdminService {
   /* ---------------- Monthly Summary and Student/Other Reports ---------------- */
   async buildMonthlySummaryReport(from: string, to: string) {
     const sessions = await this.querySessionsInRange(from, to);
-    const monthly: Record<string, { present: number; absent: number; late: number; totalEntries: number; dates: Set<string> }> = {};
-    sessions.forEach(sess => {
+    const monthly: Record<
+      string,
+      { present: number; absent: number; late: number; totalEntries: number; dates: Set<string> }
+    > = {};
+    sessions.forEach((sess) => {
       const dateISO = sess.timeStarted || sess.date || sess.createdAt;
       if (!dateISO) return;
       const d = parseFlexibleDate(dateISO);
@@ -605,7 +708,7 @@ export class AdminService {
       if (!monthly[key]) monthly[key] = { present: 0, absent: 0, late: 0, totalEntries: 0, dates: new Set() };
       monthly[key].dates.add(d.toISOString().slice(0, 10));
       const entries = this.extractEntries(sess);
-      entries.forEach(e => {
+      entries.forEach((e) => {
         const st = (e.status || '').toLowerCase();
         if (st === 'present') monthly[key].present++;
         else if (st === 'late') monthly[key].late++;
@@ -632,24 +735,25 @@ export class AdminService {
     const sessions = await this.getAllSessions();
     const stats: Record<string, { present: number; absent: number; late: number; uniqueDays: Set<string> }> = {};
     const studentMeta: Record<string, { name: string; gradeLevel: string; section: string }> = {};
-    sessions.forEach(sess => {
+    sessions.forEach((sess) => {
       const day = this.extractDay(sess);
-      if (!day) return; // skip sessions with invalid dates
-  
+      if (!day) return;
+
       const entries = this.extractEntries(sess);
-      entries.forEach(e => {
-          if (!e.studentId) return;
-          if (studentId && e.studentId !== studentId) return;
-  
-          if (!stats[e.studentId]) stats[e.studentId] = { present: 0, absent: 0, late: 0, uniqueDays: new Set() };
-          stats[e.studentId].uniqueDays.add(day);
-  
-          const st = (e.status || '').toLowerCase();
-          if (st === 'present') stats[e.studentId].present++;
-          else if (st === 'late') stats[e.studentId].late++;
-          else if (st === 'absent') stats[e.studentId].absent++;
+      entries.forEach((e) => {
+        if (!e.studentId) return;
+        if (studentId && e.studentId !== studentId) return;
+
+        if (!stats[e.studentId]) stats[e.studentId] = { present: 0, absent: 0, late: 0, uniqueDays: new Set() };
+        stats[e.studentId].uniqueDays.add(day);
+
+        const st = (e.status || '').toLowerCase();
+        if (st === 'present') stats[e.studentId].present++;
+        else if (st === 'late') stats[e.studentId].late++;
+        else if (st === 'absent') stats[e.studentId].absent++;
       });
-  });
+    });
+
     for (const sid of Object.keys(stats)) {
       try {
         const snap = await this.db.collection('students').doc(sid).get();
@@ -658,13 +762,14 @@ export class AdminService {
           const first = d.firstname || d.firstName || '';
           const middle = d.middlename || d.middleName || '';
           const last = d.lastname || d.lastName || '';
-          const name = `${first} ${middle} ${last}`.replace(/\s+/g,' ').trim() || sid;
+          const name = `${first} ${middle} ${last}`.replace(/\s+/g, ' ').trim() || sid;
           studentMeta[sid] = { name, gradeLevel: d.gradelevel || d.gradeLevel || '', section: d.section || '' };
         } else studentMeta[sid] = { name: sid, gradeLevel: '', section: '' };
       } catch {
         studentMeta[sid] = { name: sid, gradeLevel: '', section: '' };
       }
     }
+
     const rows: StudentAttendanceRow[] = Object.entries(stats).map(([sid, s]) => {
       const totalDays = s.uniqueDays.size;
       const info = studentMeta[sid];
@@ -692,16 +797,19 @@ export class AdminService {
     } else {
       sessions = await this.getAllSessions();
     }
-    const monthly: Record<string, { present: number; absent: number; late: number; totalEntries: number; dates: Set<string> }> = {};
-    sessions.forEach(sess => {
+    const monthly: Record<
+      string,
+      { present: number; absent: number; late: number; totalEntries: number; dates: Set<string> }
+    > = {};
+    sessions.forEach((sess) => {
       const raw = sess.timeStarted || sess.date || sess.createdAt;
       if (!raw) return;
       const d = parseFlexibleDate(raw);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}`;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (!monthly[key]) monthly[key] = { present: 0, absent: 0, late: 0, totalEntries: 0, dates: new Set() };
-      monthly[key].dates.add(d.toISOString().slice(0,10));
+      monthly[key].dates.add(d.toISOString().slice(0, 10));
       const entries = this.extractEntries(sess);
-      entries.forEach(e => {
+      entries.forEach((e) => {
         const st = (e.status || '').trim().toLowerCase();
         if (st === 'present') monthly[key].present++;
         else if (st === 'late') monthly[key].late++;
@@ -727,35 +835,31 @@ export class AdminService {
   /* ---------------- Lookup Lists ---------------- */
   async listStudents(q: string, limit: number) {
     const snap = await this.db.collection('students').limit(500).get();
-    const all = snap.docs.map(d => {
+    const all = snap.docs.map((d) => {
       const s: any = d.data() || {};
       const first = s.firstname || s.firstName || '';
       const middle = s.middlename || s.middleName || '';
       const last = s.lastname || s.lastName || '';
-      const name = `${first} ${middle} ${last}`.replace(/\s+/g,' ').trim() || d.id;
+      const name = `${first} ${middle} ${last}`.replace(/\s+/g, ' ').trim() || d.id;
       return { id: d.id, name, gradeLevel: s.gradelevel || s.gradeLevel || '', section: s.section || '' };
     });
     const qlc = q.toLowerCase();
-    const filtered = q
-      ? all.filter(r => r.name.toLowerCase().includes(qlc) || r.id.toLowerCase().includes(qlc))
-      : all;
+    const filtered = q ? all.filter((r) => r.name.toLowerCase().includes(qlc) || r.id.toLowerCase().includes(qlc)) : all;
     return filtered.slice(0, limit);
   }
 
   async listTeachers(q: string, limit: number) {
     const snap = await this.db.collection('teachers').limit(500).get();
-    const all = snap.docs.map(d => {
+    const all = snap.docs.map((d) => {
       const t: any = d.data() || {};
       const first = t.firstName || t.firstname || '';
       const middle = t.middleName || t.middlename || '';
       const last = t.lastName || t.lastname || '';
-      const name = `${first} ${middle} ${last}`.replace(/\s+/g,' ').trim() || d.id;
+      const name = `${first} ${middle} ${last}`.replace(/\s+/g, ' ').trim() || d.id;
       return { id: d.id, name };
     });
     const qlc = q.toLowerCase();
-    const filtered = q
-      ? all.filter(r => r.name.toLowerCase().includes(qlc) || r.id.toLowerCase().includes(qlc))
-      : all;
+    const filtered = q ? all.filter((r) => r.name.toLowerCase().includes(qlc) || r.id.toLowerCase().includes(qlc)) : all;
     return filtered.slice(0, limit);
   }
 
@@ -780,7 +884,7 @@ export class AdminService {
     const all = await this.getAllSessions();
     const fromMs = new Date(fromDate + 'T00:00:00Z').getTime();
     const toMs = new Date(toDate + 'T23:59:59Z').getTime();
-    return all.filter(sess => {
+    return all.filter((sess) => {
       const raw = sess.timeStarted || sess.date || sess.createdAt;
       if (!raw) return false;
       const d = parseFlexibleDate(raw);
@@ -789,7 +893,6 @@ export class AdminService {
     });
   }
 
-  /* Legacy query method (kept for compatibility with date-range methods) */
   private async querySessionsInRange(from: string, to: string) {
     return this.getSessionsBetween(from, to);
   }
@@ -823,11 +926,10 @@ export class AdminService {
 
   private extractDay(sess: any): string | null {
     const raw = sess.timeStarted || sess.date || sess.createdAt;
-    if (!raw) return null; // skip sessions without a valid date
+    if (!raw) return null;
     const d = parseFlexibleDate(raw);
-    return d.toISOString().slice(0,10);
-}
-
+    return d.toISOString().slice(0, 10);
+  }
 }
 
 /* ---------------- Utilities ---------------- */
@@ -854,13 +956,13 @@ function monthToRange(month: string) {
   const first = new Date(Date.UTC(y, m - 1, 1));
   const last = new Date(Date.UTC(y, m, 0));
   return {
-    fromDate: first.toISOString().slice(0,10),
-    toDate: last.toISOString().slice(0,10)
+    fromDate: first.toISOString().slice(0, 10),
+    toDate: last.toISOString().slice(0, 10),
   };
 }
 
 function monthName(monthKey: string) {
-  const [y,m] = monthKey.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m-1, 1));
+  const [y, m] = monthKey.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, 1));
   return dt.toLocaleString('en', { month: 'long' });
 }
