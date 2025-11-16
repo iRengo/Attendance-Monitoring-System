@@ -273,13 +273,61 @@ export default function AdminDashboard() {
     return () => unsubscribe();
   }, []);
 
-  return (
-    <AdminLayout title="Dashboard">
-      <div className="p-6 space-y-8">
-        {/* Archive Button */}
-        <div className="mb-4">
-          <AdminArchiveSchoolYear adminEmail="aics@admin.edu.ph" />
+      return (
+        <AdminLayout title="Dashboard">
+          <div className="p-6 space-y-8">
+            {/* Archive Button */}
+            <div
+      className="
+        w-full mb-6
+        p-4 rounded-xl
+        bg-gradient-to-r from-amber-50 to-amber-100
+        border border-amber-200
+        shadow-[0_2px_10px_rgba(0,0,0,0.05)]
+        flex items-center justify-between
+        hover:shadow-[0_4px_16px_rgba(0,0,0,0.08)]
+        hover:bg-amber-50
+        transition-all duration-300
+      "
+    >
+      {/* Left: Icon + Text */}
+      <div className="flex items-center gap-4">
+        {/* Icon inside circle */}
+        <div className="flex items-center justify-center w-10 h-10 
+          bg-amber-200 rounded-full shadow-inner">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+            className="w-6 h-6 text-amber-700"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3m0 3h.01M4.062 17h15.876c1.54 
+                0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 
+                0L2.33 14c-.77 1.333.192 3 1.732 3z"
+            />
+          </svg>
         </div>
+
+        {/* Text */}
+        <div>
+          <h2 className="font-bold text-amber-800 text-sm tracking-wide">
+            School Year Archive
+          </h2>
+          <p className="text-xs text-amber-700 opacity-80">
+            Reset system and prepare for new School-Year.
+          </p>
+        </div>
+      </div>
+
+      {/* Action Button */}
+      <AdminArchiveSchoolYear adminEmail="aics@admin.edu.ph" />
+    </div>
+
 
         {/* Metrics */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
