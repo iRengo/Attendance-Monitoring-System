@@ -16,8 +16,13 @@ async function bootstrap() {
 
   // ✅ Enable CORS for frontend (React Vite)
   app.enableCors({
-    origin: 'http://localhost:5173',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    origin: [
+      "http://localhost:5173",
+      "http://localhost",
+      "https://aics-attendanceportal.online",     // your domain
+      "https://www.aics-attendanceportal.online", // www version
+    ],
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true,
   });
 
