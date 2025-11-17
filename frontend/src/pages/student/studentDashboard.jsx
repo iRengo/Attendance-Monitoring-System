@@ -1,5 +1,5 @@
 import StudentLayout from "../../components/studentLayout";
-import logoImage from "../../assets/images/aics_logo.png";
+import logoImage from "../../../public/aics_logo.png";
 
 import useStudentDashboardData from "./components/studentDashboard/hooks/useStudentDashboardData";
 import {
