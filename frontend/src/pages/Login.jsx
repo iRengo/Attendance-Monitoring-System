@@ -288,7 +288,7 @@ const handleLogin = async (e) => {
               </div>
                     <div className="flex justify-center">
                       <ReCAPTCHA
-                        sitekey="6Lc2aw8sAAAAADk31Q5jbXGXAmudY5O3OyE6-UsF"
+                        sitekey="6LdTcQ8sAAAAAEX8gXXKeEvkAKft0STWWZo3jZqK"
                         onChange={(value) => setCaptchaValue(value)}
                       />
                     </div>
