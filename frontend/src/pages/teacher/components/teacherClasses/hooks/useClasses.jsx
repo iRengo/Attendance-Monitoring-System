@@ -51,9 +51,9 @@ export default function useClasses(teacherId) {
     const fetchClasses = async () => {
       if (!teacherId) return;
       try {
-        const res = await axios.get("http://localhost:3000/teacher/classes", {
+        axios.get("/api/teacher/classes", {
           params: { teacherId },
-        });
+      });      
         if (res.data.success) {
           const cleaned = (res.data.classes || []).map((cls) => {
             const { roomId, ...rest } = cls;
