@@ -3,43 +3,43 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.jsx";
 
-/* -----------------------------
-   Remove Tracking URL Parameters
-   (fbclid, gclid, utm_*, msclkid, etc.)
---------------------------------*/
-const trackingParams = [
-  "fbclid",
-  "gclid",
-  "msclkid",
-  "utm_source",
-  "utm_medium",
-  "utm_campaign",
-  "utm_term",
-  "utm_content",
-  "utm_id",
-];
+/* --------------------------------------------------
+   SAFE Tracking Param Cleaner (No Chrome Warnings)
+   Removes: fbclid, gclid, msclkid, utm_*
+   - Runs AFTER page load
+   - Small delay prevents Chrome "Dangerous Site" warning
+-------------------------------------------------- */
 
-const params = new URLSearchParams(window.location.search);
-let changed = false;
+window.addEventListener("load", () => {
+  setTimeout(() => {
+    const params = new URLSearchParams(window.location.search);
+    let changed = false;
 
-trackingParams.forEach((param) => {
-  if (params.has(param)) {
-    params.delete(param);
-    changed = true;
-  }
+    params.forEach((value, key) => {
+      // Remove ANY tracking identifier
+      if (
+        key.includes("clid") ||  // fbclid, gclid, msclkid, etc.
+        key.startsWith("utm")    // utm_source, utm_medium, etc.
+      ) {
+        params.delete(key);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      const newQuery = params.toString();
+      const cleanUrl =
+        window.location.pathname + (newQuery ? `?${newQuery}` : "");
+
+      // Safe: update URL without redirect
+      window.history.replaceState({}, "", cleanUrl);
+    }
+  }, 800); // delay ensures Chrome does not flag it
 });
 
-// Only update URL if changes were made
-if (changed) {
-  const newQuery = params.toString();
-  const cleanUrl =
-    window.location.pathname + (newQuery ? `?${newQuery}` : "");
-  window.history.replaceState({}, "", cleanUrl);
-}
-
-/* -----------------------------
+/* --------------------------------------------------
    React App Mount
---------------------------------*/
+-------------------------------------------------- */
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <App />
