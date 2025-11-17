@@ -11,7 +11,7 @@ export default function useStudents(teacherId, selectedClass) {
     const fetchStudents = async () => {
       if (!selectedClass || !teacherId) return;
       try {
-        const res = await axios.get("http://localhost:3000/teacher/class-students", {
+        const res = await axios.get(`/api/teacher/class-students`, {
           params: { teacherId, classId: selectedClass.id },
         });
         if (res.data.success) {
@@ -34,7 +34,7 @@ export default function useStudents(teacherId, selectedClass) {
       // trigger effect by setting same selectedClass (no-op) or simply re-run fetch:
       (async () => {
         try {
-          const res = await axios.get("http://localhost:3000/teacher/class-students", {
+          const res = await axios.get(`/api/teacher/class-students`, {
             params: { teacherId, classId: selectedClass.id },
           });
           if (res.data.success) {

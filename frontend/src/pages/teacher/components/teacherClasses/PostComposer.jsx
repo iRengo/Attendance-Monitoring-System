@@ -141,7 +141,7 @@ export default function PostComposer({ teacherId, selectedClass, onPostAdded }) 
         attachments,
       };
 
-      const res = await axios.post("http://localhost:3000/teacher/add-post", payload);
+      const res = await axios.post(`/api/teacher/add-post`, payload);
 
       if (res.data.success) {
         onPostAdded(res.data.post);

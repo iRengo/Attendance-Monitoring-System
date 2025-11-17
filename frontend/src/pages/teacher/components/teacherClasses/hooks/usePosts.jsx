@@ -12,7 +12,7 @@ export default function usePosts(teacherId, selectedClass) {
   const fetchPosts = useCallback(async () => {
     if (!selectedClass || !teacherId) return;
     try {
-      const res = await axios.get("http://localhost:3000/teacher/class-posts", {
+      const res = await axios.get(`/api/teacher/class-posts`, {
         params: { teacherId, classId: selectedClass.id },
       });
       if (res.data.success) setPosts(res.data.posts);

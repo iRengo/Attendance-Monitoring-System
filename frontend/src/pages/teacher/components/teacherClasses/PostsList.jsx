@@ -71,9 +71,9 @@ export default function PostsList({
 
     try {
       const res = await axios.put(
-        `http://localhost:3000/teacher/update-post/${encodeURIComponent(cId)}/${encodeURIComponent(post.id)}`,
+        `/api/teacher/update-post/${encodeURIComponent(cId)}/${encodeURIComponent(post.id)}`,
         { teacherId: tId, content: editedText }
-      );
+    );    
       if (res.data?.success) {
         onPostUpdated?.(res.data.post);
         setEditingPostId(null);
@@ -113,8 +113,11 @@ export default function PostsList({
 
     try {
       const res = await axios.delete(
-        `http://localhost:3000/teacher/delete-post/${encodeURIComponent(cId)}/${encodeURIComponent(post.id)}?teacherId=${encodeURIComponent(tId)}`
-      );
+        `/api/teacher/delete-post/${encodeURIComponent(cId)}/${encodeURIComponent(post.id)}`,
+        {
+            params: { teacherId: tId }
+        }
+    );    
       if (res.data?.success) {
         onPostDeleted?.(post.id);
       } else {
