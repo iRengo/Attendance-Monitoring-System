@@ -11,7 +11,7 @@ import { toast } from "react-toastify";
 import RegisterForm from "../components/registerForm";
 
 import bannerBottom from "../assets/images/banner1.png";
-import aicsLogo from "../assets/images/aics_logo.png";
+import aicsLogo from "../../public/aics_logo.png";
 import peoples from "../assets/images/peoples.png";
 import anniversary29 from "../assets/images/29y.png";
 import announcementBg from "../assets/images/announcements.png";

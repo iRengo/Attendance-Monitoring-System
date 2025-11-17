@@ -256,7 +256,11 @@ export default function TeacherLayout({ title, children }) {
         className={`fixed left-0 top-0 h-screen ${isCollapsed ? "w-26" : "w-74"} bg-[#415CA0] flex flex-col text-white transition-all duration-300 z-50`}
       >
         <div className="flex items-center gap-3 px-6 py-4 border-b border-white/20">
-          <img src="../src/assets/images/aics_logo.png" alt="AICS Logo" className="h-15 w-auto object-contain"/>
+        <img
+          src="/aics_logo.png"
+          alt="AICS Logo"
+          className="h-15 w-auto object-contain"
+        />
           {!isCollapsed && (
             <div className="font-bold leading-tight text-md">
               <p>Asian Institute of</p>
