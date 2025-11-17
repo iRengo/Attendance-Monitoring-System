@@ -118,7 +118,7 @@ export default function UserManagement() {
     try {
       const formData = new FormData();
       formData.append("file", csvFile);
-      const res = await fetch("http://localhost:3000/admin/import-csv", {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/admin/import-csv`, {
         method: "POST",
         body: formData,
       });
@@ -386,11 +386,12 @@ export default function UserManagement() {
 
     setCreating(true);
     try {
-      const res = await fetch("http://localhost:3000/admin/add-student", {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/admin/add-student`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(addModalUser),
       });
+      
       const data = await res.json();
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || "Failed to create student.");

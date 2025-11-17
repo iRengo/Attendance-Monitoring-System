@@ -139,9 +139,12 @@ export default function useTeacherSettings() {
 
       setUploading(true);
       const res = await fetch(
-        `http://localhost:3000/teacher/upload-profile-picture/${user.uid}`,
-        { method: "POST", body: formData }
-      );
+        `/api/teacher/upload-profile-picture/${user.uid}`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );      
       const result = await res.json();
       if (!res.ok) throw new Error(result.message || "Upload failed");
 

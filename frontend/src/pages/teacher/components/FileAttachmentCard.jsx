@@ -62,10 +62,8 @@ export default function FileAttachmentCard({
     (async () => {
       try {
         const res = await fetch(
-          `http://localhost:3000/files/pdf-thumb?publicId=${encodeURIComponent(
-            publicId
-          )}&w=92&h=92`
-        );
+          `/api/files/pdf-thumb?publicId=${encodeURIComponent(publicId)}&w=92&h=92`
+        );        
         const data = await res.json();
         if (!cancelled) {
           if (res.ok && data?.url) {

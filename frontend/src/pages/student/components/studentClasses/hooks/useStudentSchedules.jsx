@@ -214,11 +214,14 @@ export default function useStudentSchedules() {
         return;
       }
 
-      const res = await axios.post("http://localhost:3000/student/join-class", {
-        studentId,
-        classId,
-      });
-
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_URL}/student/join-class`,
+        {
+          studentId,
+          classId,
+        }
+      );
+      
       if (res.data.success) {
         Swal.fire({
           icon: "success",
@@ -280,10 +283,14 @@ export default function useStudentSchedules() {
     if (!classId) return;
 
     try {
-      const res = await axios.post("http://localhost:3000/student/leave-class", {
-        studentId,
-        classId,
-      });
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_URL}/student/leave-class`,
+        {
+          studentId,
+          classId,
+        }
+      );
+      
 
       if (res.data.success) {
         setClasses((prev) => prev.filter((cls) => cls.id !== classId));
