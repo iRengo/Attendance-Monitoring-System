@@ -18,3 +18,5 @@ export class FirebaseService {
   auth = admin.auth();
   storage = admin.storage().bucket(process.env.FIREBASE_STORAGE_BUCKET); // ✅ bucket reference
 }
+
+//fix!
