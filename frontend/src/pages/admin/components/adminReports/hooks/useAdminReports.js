@@ -50,10 +50,10 @@ export default function useAdminReports() {
 
     (async () => {
       try {
-        const res = await axios.get("http://localhost:3000/admin/list/students", {
+        const res = await axios.get("https://aics-attendanceportal.online/api/admin/list/students", {
           params: { q: debouncedStudent.trim(), limit: 20 },
           signal: ctrl.signal,
-        });
+        });        
         if (res.data.success) setStudentOptions(res.data.rows || []);
       } catch (err) {
         if (err.name !== "CanceledError") console.error(err);
@@ -76,10 +76,10 @@ export default function useAdminReports() {
 
     (async () => {
       try {
-        const res = await axios.get("http://localhost:3000/admin/list/teachers", {
+        const res = await axios.get("https://aics-attendanceportal.online/api/admin/list/teachers", {
           params: { q: debouncedTeacher.trim(), limit: 20 },
           signal: ctrl.signal,
-        });
+        });        
         if (res.data.success) setTeacherOptions(res.data.rows || []);
       } catch (err) {
         if (err.name !== "CanceledError") console.error(err);
@@ -108,7 +108,7 @@ export default function useAdminReports() {
         if (month) params.month = month;
       }
 
-      const res = await axios.get(`http://localhost:3000${endpoint}`, { params });
+      const res = await axios.get(`https://aics-attendanceportal.online/api${endpoint}`, { params });
       if (res.data.success) {
         setRows(res.data.rows || []);
         setMeta(res.data.meta || null);
