@@ -127,7 +127,7 @@ export default function useClasses(teacherId) {
 
         // Preferred: single endpoint that returns counts for many classIds
         try {
-          const res = await axios.post("http://localhost:3000/teacher/class-student-counts", {
+          const res = await axios.post("/api/teacher/class-student-counts", {
             teacherId,
             classIds,
           });
@@ -156,7 +156,7 @@ export default function useClasses(teacherId) {
           while (ids.length > 0 && !cancelled) {
             const id = ids.shift();
             try {
-              const res = await axios.get("http://localhost:3000/teacher/class-students", {
+              const res = await axios.get("/api/teacher/class-students", {
                 params: { teacherId, classId: id },
               });
               results[id] = res.data && res.data.success ? (res.data.students || []).length : 0;
@@ -225,7 +225,7 @@ export default function useClasses(teacherId) {
     try {
       if (isEditMode) {
         const res = await axios.put(
-          `http://localhost:3000/teacher/update-class/${classForm.id}`,
+          `/api/teacher/update-class/${classForm.id}`,        
           {
             teacherId,
             subjectName: classForm.subject,
@@ -288,7 +288,7 @@ export default function useClasses(teacherId) {
           throw new Error(res.data.message || "Update failed");
         }
       } else {
-        const res = await axios.post("http://localhost:3000/teacher/add-class", {
+        const res = await axios.post("/api/teacher/add-class", {
           teacherId,
           subjectName: classForm.subject,
           roomNumber: classForm.room,
@@ -368,8 +368,8 @@ export default function useClasses(teacherId) {
 
     try {
       const res = await axios.delete(
-        `http://localhost:3000/teacher/delete-class/${classId}?teacherId=${teacherId}`
-      );
+        `/api/teacher/delete-class/${classId}?teacherId=${teacherId}`
+      );      
       if (res.data.success) {
         setClasses((prev) => prev.filter((cls) => cls.id !== classId));
         // update cache
