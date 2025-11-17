@@ -51,14 +51,16 @@ export default function useClasses(teacherId) {
     const fetchClasses = async () => {
       if (!teacherId) return;
       try {
-        axios.get("/api/teacher/classes", {
+        const res = await axios.get("/api/teacher/classes", {
           params: { teacherId },
-      });      
+        });
+      
         if (res.data.success) {
           const cleaned = (res.data.classes || []).map((cls) => {
             const { roomId, ...rest } = cls;
             return rest;
           });
+      
           if (!cancelled) {
             setClasses(cleaned);
             try {
@@ -66,14 +68,17 @@ export default function useClasses(teacherId) {
             } catch (e) {
               console.warn("Could not persist classes to localStorage", e);
             }
+      
             if (res.data.needsIndex) {
-              console.warn("Firestore composite index missing for classes {teacherId, createdAt}.");
+              console.warn(
+                "Firestore composite index missing for classes {teacherId, createdAt}."
+              );
             }
           }
         } else {
           throw new Error(res.data.message || "Failed to fetch classes");
         }
-      } catch (err) {
+      } catch (err) {      
         console.error("Error fetching classes:", err);
         // Try load cached classes from localStorage
         try {
