@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Swal from 'sweetalert2';
-import { auth, db } from './firebase'; // adjust path
+import { auth, db } from './firebase'; 
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, getDocs, doc, writeBatch, addDoc, updateDoc } from 'firebase/firestore';
 

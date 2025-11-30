@@ -19,22 +19,25 @@ export default function AdminReports() {
   // Student percent rule:
   // - Each "late" counts as present for percentage up to 3 lates.
   // - After 3 lates, subsequent lates count as absents.
+  // Prefer using totalClasses when available to compute percentage.
   function computeAdjustedStudentPercent(r) {
     const present = Number(r.present || 0);
     const late = Number(r.late || 0);
     const absent = Number(r.absent || 0);
-  
-    const total = present + absent + late; // total number of attendance events
-    if (!total) return 0;
-  
+
     const lateCountedAsPresent = Math.min(late, 3);
     const presentEquivalent = present + lateCountedAsPresent;
-  
-    const percent = (presentEquivalent / total) * 100;
+
+    const totalFromEvents = present + absent + late;
+    const totalClasses = Number.isFinite(Number(r.totalClasses)) && Number(r.totalClasses) > 0
+      ? Number(r.totalClasses)
+      : (totalFromEvents || 0);
+
+    if (!totalClasses) return 0;
+
+    const percent = (presentEquivalent / totalClasses) * 100;
     return Number(Math.min(percent, 100).toFixed(1));
   }
-  
-  
 
   function formatPercent(value) {
     if (value === null || value === undefined || value === "") return "";
@@ -48,18 +51,18 @@ export default function AdminReports() {
     let mapped = [];
 
     if (reportKind === "student") {
-      headers = ["Student Name","Grade & Section","Total Days","Present","Absent","Late","Attendance %"];
+      headers = ["Student Name","Grade & Section","Total Classes","Total Days","Present","Absent","Late","Attendance %"];
       mapped = rows.map(r => {
         const pct = computeAdjustedStudentPercent(r);
-        return [r.studentName, r.gradeSection, r.totalDays, r.present, r.absent, r.late, formatPercent(pct)];
+        return [r.studentName, r.gradeSection, r.totalClasses ?? "", r.totalDays ?? "", r.present ?? "", r.absent ?? "", r.late ?? "", formatPercent(pct)];
       });
     } else if (reportKind === "teacher") {
       headers = ["Teacher Name","Attendance Submitted","Missed Days","Submission Rate"];
       mapped = rows.map(r => [r.teacherName,r.attendanceSubmitted,r.missedDays,formatPercent(r.submissionRate)]);
     } else {
-      // Monthly: add Total Presents
-      headers = ["Month","Total Days","Total Presents","Total Absences","Late Entries","Avg Attendance %"];
-      mapped = rows.map(r => [r.month,r.totalDays,r.totalPresents,r.totalAbsences,r.lateEntries,formatPercent(r.avgAttendancePercent)]);
+      // Monthly: include Total Classes
+      headers = ["Month","Total Classes","Total Days","Total Presents","Total Absences","Late Entries","Avg Attendance %"];
+      mapped = rows.map(r => [r.month, r.totalClasses ?? "", r.totalDays ?? "", r.totalPresents ?? "", r.totalAbsences ?? "", r.lateEntries ?? "", formatPercent(r.avgAttendancePercent)]);
     }
 
     const csvContent = "data:text/csv;charset=utf-8," + [headers,...mapped].map(e=>e.join(",")).join("\n");
@@ -71,7 +74,20 @@ export default function AdminReports() {
     a.remove();
   }
 
-  function exportPDF() {
+  // helper: load an image from public path and return a data URL
+  async function loadImageDataUrl(path) {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`Failed to load image: ${res.status}`);
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function exportPDF() {
     if (!rows.length) return;
     try {
       const orientation = reportKind === "student" ? "landscape" : "portrait";
@@ -85,6 +101,47 @@ export default function AdminReports() {
         teacher: "Teacher Attendance Compliance Report (Overall)",
         monthly: "Monthly Attendance Summary"
       };
+
+      // Try to load logo from public folder. If it fails, continue without logo.
+      let logoDataUrl = null;
+      try {
+        // public files are typically served at the root path
+        logoDataUrl = await loadImageDataUrl('/aics_logo.png');
+      } catch (err) {
+        // couldn't load logo, proceed without it
+        console.warn('Could not load logo for PDF export:', err);
+      }
+
+      // Header layout defaults
+      const titleX = 40;
+      let titleY = 48;
+      const logoTop = 16;
+      let lineY = 78;
+
+      if (logoDataUrl) {
+        // create image element to read natural sizes
+        const imgEl = new Image();
+        await new Promise((resolve, reject) => {
+          imgEl.onload = resolve;
+          imgEl.onerror = reject;
+          imgEl.src = logoDataUrl;
+        });
+        // desired width in points
+        const imgWidth = 60;
+        const ratio = imgEl.naturalWidth ? (imgEl.naturalHeight / imgEl.naturalWidth) : 1;
+        const imgHeight = imgWidth * ratio;
+
+        // place logo on the right side, respecting right margin (40)
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const imgX = pageWidth - 40 - imgWidth;
+        doc.addImage(logoDataUrl, 'PNG', imgX, logoTop, imgWidth, imgHeight);
+
+        // ensure the header line sits below both title and logo
+        titleY = 48;
+        lineY = Math.max(titleY + 30, logoTop + imgHeight + 8);
+      }
+
+      const title = titleMap[reportKind] || "Attendance Report";
       const subline =
         reportKind === "monthly" && meta?.month
           ? `Month: ${meta.month} • Generated: ${new Date().toLocaleString()}`
@@ -93,24 +150,24 @@ export default function AdminReports() {
       doc.setTextColor(0,0,0);
       doc.setFont("helvetica","bold");
       doc.setFontSize(18);
-      doc.text(titleMap[reportKind] || "Attendance Report", 40, 48);
+      doc.text(title, titleX, titleY);
 
       doc.setFont("helvetica","normal");
       doc.setTextColor(...gray);
       doc.setFontSize(11);
-      doc.text(subline, 40, 68);
+      doc.text(subline, titleX, titleY + 20);
 
       doc.setDrawColor(...brand);
       doc.setLineWidth(2);
-      doc.line(40, 78, doc.internal.pageSize.getWidth() - 40, 78);
+      doc.line(40, lineY, doc.internal.pageSize.getWidth() - 40, lineY);
 
       let columns = [];
       let data = [];
 
       if (reportKind === "student") {
-        columns = ["#", "Student Name", "Grade & Section", "Total Days", "Present", "Absent", "Late", "Attendance %"];
+        columns = ["#", "Student Name", "Grade & Section", "Total Classes", "Total Days", "Present", "Absent", "Late", "Attendance %"];
         data = rows.map((r,i)=>[
-          i+1, r.studentName, r.gradeSection, r.totalDays, r.present, r.absent, r.late, formatPercent(computeAdjustedStudentPercent(r))
+          i+1, r.studentName, r.gradeSection, r.totalClasses ?? "", r.totalDays ?? "", r.present ?? "", r.absent ?? "", r.late ?? "", formatPercent(computeAdjustedStudentPercent(r))
         ]);
       } else if (reportKind === "teacher") {
         columns = ["#", "Teacher Name", "Attendance Submitted", "Missed Days", "Submission Rate"];
@@ -118,10 +175,10 @@ export default function AdminReports() {
           i+1, r.teacherName, r.attendanceSubmitted, r.missedDays, formatPercent(r.submissionRate)
         ]);
       } else {
-        // Monthly: add Total Presents
-        columns = ["#", "Month", "Total Days", "Total Presents", "Total Absences", "Late Entries","Avg Attendance %"];
+        // Monthly: include Total Classes
+        columns = ["#", "Month", "Total Classes", "Total Days", "Total Presents", "Total Absences", "Late Entries", "Avg Attendance %"];
         data = rows.map((r,i)=>[
-          i+1, r.month, r.totalDays, r.totalPresents, r.totalAbsences, r.lateEntries, formatPercent(r.avgAttendancePercent)
+          i+1, r.month, r.totalClasses ?? "", r.totalDays ?? "", r.totalPresents ?? "", r.totalAbsences ?? "", r.lateEntries ?? "", formatPercent(r.avgAttendancePercent)
         ]);
       }
 
@@ -130,7 +187,7 @@ export default function AdminReports() {
       }
 
       autoTable(doc, {
-        startY: 96,
+        startY: lineY + 18,
         head: [columns],
         body: data,
         styles: {
@@ -150,16 +207,18 @@ export default function AdminReports() {
         columnStyles: (() => {
           const cs = { 0: { halign: "right", cellWidth: 30 } };
           if (reportKind === "student") {
-            cs[3] = cs[4] = cs[5] = cs[6] = cs[7] = { halign: "right" };
+            // indices: 3..8 are numeric in the student table (Total Classes, Total Days, Present, Absent, Late, Attendance %)
+            cs[3] = cs[4] = cs[5] = cs[6] = cs[7] = cs[8] = { halign: "right" };
           } else if (reportKind === "teacher") {
             cs[3] = cs[4] = cs[5] = { halign: "right" };
           } else {
-            // monthly: #, Month, Total Days, Total Presents, Avg %, Absences, Late
+            // monthly: indices 2..7 numeric (Total Classes, Total Days, Total Presents, Total Absences, Late Entries, Avg %)
             cs[2] = { halign: "right" };
             cs[3] = { halign: "right" };
             cs[4] = { halign: "right" };
             cs[5] = { halign: "right" };
             cs[6] = { halign: "right" };
+            cs[7] = { halign: "right" };
           }
           return cs;
         })(),
@@ -168,7 +227,7 @@ export default function AdminReports() {
           const pageWidth = doc.internal.pageSize.getWidth();
           doc.setDrawColor(...brand);
           doc.setLineWidth(2);
-          doc.line(40, 78, pageWidth - 40, 78);
+          doc.line(40, lineY, pageWidth - 40, lineY);
         }
       });
 
@@ -320,13 +379,13 @@ export default function AdminReports() {
                 <thead>
                   <tr className="bg-blue-50 text-left text-gray-700">
                     {reportKind==='student' && <>
-                      <Th>#</Th><Th>Student Name</Th><Th>Grade & Section</Th><Th>Total Days</Th><Th>Present</Th><Th>Absent</Th><Th>Late</Th><Th>Attendance %</Th>
+                      <Th>#</Th><Th>Student Name</Th><Th>Grade & Section</Th><Th>Total Classes</Th><Th>Total Days</Th><Th>Present</Th><Th>Absent</Th><Th>Late</Th><Th>Attendance %</Th>
                     </>}
                     {reportKind==='teacher' && <>
                       <Th>#</Th><Th>Teacher Name</Th><Th>Attendance Submitted</Th><Th>Missed Days</Th><Th>Submission Rate %</Th>
                     </>}
                     {reportKind==='monthly' && <>
-                      <Th>#</Th><Th>Month</Th><Th>Total Days</Th><Th>Total Presents</Th><Th>Total Absences</Th><Th>Late Entries</Th><Th>Avg Attendance %</Th>
+                      <Th>#</Th><Th>Month</Th><Th>Total Classes</Th><Th>Total Days</Th><Th>Total Presents</Th><Th>Total Absences</Th><Th>Late Entries</Th><Th>Avg Attendance %</Th>
                     </>}
                   </tr>
                 </thead>
@@ -336,7 +395,7 @@ export default function AdminReports() {
                     if (reportKind==='student') return (
                       <tr key={r.studentId||idx} className={`${alt} hover:bg-blue-50`}>
                         <Td>{idx+1}</Td><Td>{r.studentName}</Td><Td>{r.gradeSection}</Td>
-                        <Td>{r.totalDays}</Td><Td className="text-green-700">{r.present}</Td>
+                        <Td className="text-gray-700">{r.totalClasses ?? "—"}</Td><Td>{r.totalDays}</Td><Td className="text-green-700">{r.present}</Td>
                         <Td className="text-gray-600">{r.absent}</Td><Td className="text-orange-600">{r.late}</Td>
                         <Td>{formatPercent(computeAdjustedStudentPercent(r))}</Td>
                       </tr>
@@ -351,7 +410,7 @@ export default function AdminReports() {
                     );
                     return (
                       <tr key={r.month||idx} className={`${alt} hover:bg-blue-50`}>
-                        <Td>{idx+1}</Td><Td>{r.month}</Td><Td>{r.totalDays}</Td>
+                        <Td>{idx+1}</Td><Td>{r.month}</Td><Td className="text-gray-700">{r.totalClasses ?? "—"}</Td><Td>{r.totalDays}</Td>
                         <Td className="text-green-700">{r.totalPresents}</Td>
                         <Td className="text-gray-600">{r.totalAbsences}</Td>
                         <Td className="text-orange-600">{r.lateEntries}</Td>

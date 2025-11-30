@@ -37,6 +37,55 @@ export default function useAdminReports() {
   const debouncedStudent = useDebounce(studentQuery, 250);
   const debouncedTeacher = useDebounce(teacherQuery, 250);
 
+  // Helper to compute total classes for a row (defensive, checks multiple possible shapes)
+  const computeTotalClasses = (row = {}, metaData = {}) => {
+    // 1) If API already provided totalClasses
+    if (typeof row.totalClasses === "number") return row.totalClasses;
+
+    const toNumberOrNaN = (v) => {
+      if (v == null) return NaN;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : NaN;
+    };
+
+    // 2) Monthly-specific shape: totalPresents + totalAbsences + lateEntries
+    //    (This covers your example where monthly rows use these fields.)
+    const totalPresents = toNumberOrNaN(row.totalPresents ?? row.presents ?? row.present ?? row.present_count);
+    const totalAbsences = toNumberOrNaN(row.totalAbsences ?? row.absences ?? row.absent ?? row.absent_count);
+    const lateEntries = toNumberOrNaN(row.lateEntries ?? row.late ?? 0);
+
+    if (!Number.isNaN(totalPresents) && !Number.isNaN(totalAbsences)) {
+      const lateN = Number.isNaN(lateEntries) ? 0 : lateEntries;
+      return totalPresents + totalAbsences + lateN;
+    }
+
+    // 3) If there's an explicit totalDays/total_days value that looks like the class count, use it
+    const totalDays = toNumberOrNaN(row.totalDays ?? row.total_days ?? row.daysCount ?? row.days_count);
+    if (!Number.isNaN(totalDays) && totalDays >= 0) return totalDays;
+
+    // 4) Common fields: attended/present + absent/missed/absences (fallback)
+    const attended = toNumberOrNaN(row.attended ?? row.present ?? row.presents ?? row.attends ?? row.present_count);
+    const absent = toNumberOrNaN(row.absent ?? row.missed ?? row.absences ?? row.absent_count);
+
+    if (!Number.isNaN(attended) && !Number.isNaN(absent)) return attended + absent;
+
+    // 5) If there's a sessions/days array on the row
+    if (Array.isArray(row.sessions)) return row.sessions.length;
+    if (Array.isArray(row.days)) return row.days.length;
+
+    // 6) If row has an object of day keys (e.g. { "2025-01-01": {...} })
+    if (row.days && typeof row.days === "object" && !Array.isArray(row.days)) {
+      return Object.keys(row.days).length;
+    }
+
+    // 7) Fallback to meta.totalClasses if available
+    if (typeof metaData.totalClasses === "number") return metaData.totalClasses;
+    if (typeof metaData.total_classes === "number") return metaData.total_classes;
+
+    // 8) Could not determine
+    return null;
+  };
+
   // 🚀 Optimized Student Search
   useEffect(() => {
     if (reportKind !== "student" || debouncedStudent.trim().length < 2) {
@@ -113,8 +162,19 @@ export default function useAdminReports() {
         { params }
       );      
       if (res.data.success) {
-        setRows(res.data.rows || []);
-        setMeta(res.data.meta || null);
+        // Attach totalClasses for student and monthly reports
+        const fetchedMeta = res.data.meta || null;
+        let fetchedRows = res.data.rows || [];
+
+        if (reportKind === "student" || reportKind === "monthly") {
+          fetchedRows = fetchedRows.map((r) => ({
+            ...r,
+            totalClasses: computeTotalClasses(r, fetchedMeta),
+          }));
+        }
+
+        setRows(fetchedRows);
+        setMeta(fetchedMeta);
       } else setError("Failed to fetch report");
     } catch (e) {
       setError(e.response?.data?.message || "Error fetching report");

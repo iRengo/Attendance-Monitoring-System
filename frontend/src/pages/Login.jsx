@@ -2,7 +2,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc, collection, getDocs, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import InputField from "../components/InputField";
 import ReCAPTCHA from "react-google-recaptcha";
@@ -27,141 +27,173 @@ export default function Login() {
 
   const navigate = useNavigate();
 
-  // ✅ Real-time announcement sync
+  // Mobile announcements state (hidden by default)
+  const [mobileAnnouncementsOpen, setMobileAnnouncementsOpen] = useState(false);
+
+  // Touch tracking refs
+  const touchStartY = useRef(null);
+  const touchCurrentY = useRef(null);
+  const isDraggingPanel = useRef(false);
+
+  // Real-time announcements
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "announcements"), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
       const filtered = data.filter((a) => {
         const now = new Date();
         const exp = new Date(a.expiration);
         return (a.target === "students" || a.target === "all") && exp >= now;
       });
-
       filtered.sort(
         (a, b) =>
           new Date(b.createdAt?.toDate?.() || 0) -
           new Date(a.createdAt?.toDate?.() || 0)
       );
-
       setAnnouncements(filtered);
     });
-
     return () => unsub();
   }, []);
 
-  // ✅ LOGIN FUNCTION WITH MAINTENANCE CHECK
-  // ✅ LOGIN FUNCTION WITH MAINTENANCE CHECK
-const handleLogin = async (e) => {
-  e.preventDefault();
+  // LOGIN with maintenance & role checks
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!captchaValue) {
+      toast.error("Please complete the CAPTCHA!");
+      return;
+    }
+    setLoading(true);
+    try {
+      const emailTrimmed = email.trim().toLowerCase();
+      const maintenanceDoc = await getDoc(doc(db, "system_settings", "maintenance_mode"));
+      const isMaintenance = maintenanceDoc.exists() ? maintenanceDoc.data().enabled : false;
 
-  if (!captchaValue) {
-    toast.error("Please complete the CAPTCHA!");
-    return;
-  }
+      if (isMaintenance) {
+        const adminSnapshot = await getDocs(collection(db, "admins"));
+        const adminDoc = adminSnapshot.docs.find(
+          (doc) => doc.data().email === emailTrimmed
+        );
+        if (!adminDoc) {
+          toast.warning("System is currently under maintenance. Please try again later.");
+          setLoading(false);
+          return;
+        }
+      }
 
-  setLoading(true);
-
-  try {
-    const emailTrimmed = email.trim().toLowerCase();
-
-    // Step 1: Check maintenance mode
-    const maintenanceDoc = await getDoc(doc(db, "system_settings", "maintenance_mode"));
-    const isMaintenance = maintenanceDoc.exists() ? maintenanceDoc.data().enabled : false;
-
-    // Step 2: If under maintenance, only allow admins
-    if (isMaintenance) {
       const adminSnapshot = await getDocs(collection(db, "admins"));
       const adminDoc = adminSnapshot.docs.find(
         (doc) => doc.data().email === emailTrimmed
       );
-
-      if (!adminDoc) {
-        toast.warning("System is currently under maintenance. Please try again later.");
-        setLoading(false);
+      if (adminDoc) {
+        await signInWithEmailAndPassword(auth, emailTrimmed, password);
+        localStorage.setItem(
+          "user",
+          JSON.stringify({
+            uid: adminDoc.id,
+            role: "admin",
+            email: emailTrimmed,
+          })
+        );
+        navigate("/admin/dashboard");
         return;
       }
-    }
 
-    // Step 3: Check Admins collection
-    const adminSnapshot = await getDocs(collection(db, "admins"));
-    const adminDoc = adminSnapshot.docs.find(
-      (doc) => doc.data().email === emailTrimmed
-    );
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        emailTrimmed,
+        password
+      );
 
-    if (adminDoc) {
-      await signInWithEmailAndPassword(auth, emailTrimmed, password);
-      // ✅ Save admin info
+      const collections = ["students", "teachers"];
+      let userDoc = null;
+      let userRole = null;
+      for (const col of collections) {
+        const q = await getDocs(collection(db, col));
+        const docSnap = q.docs.find(
+          (doc) => doc.data().school_email === emailTrimmed
+        );
+        if (docSnap) {
+          userDoc = docSnap.data();
+          userRole = col;
+          break;
+        }
+      }
+
+      if (!userDoc) {
+        toast.error("No user record found in Firestore!");
+        return;
+      }
+
       localStorage.setItem(
         "user",
         JSON.stringify({
-          uid: adminDoc.id,
-          role: "admin",
+          uid: userCredential.user.uid,
+          role: userRole === "students" ? "student" : "teacher",
           email: emailTrimmed,
         })
       );
-      navigate("/admin/dashboard");
-      return;
-    }
 
-    // Step 4: Check students or teachers
-    const userCredential = await signInWithEmailAndPassword(
-      auth,
-      emailTrimmed,
-      password
-    );
-
-    const collections = ["students", "teachers"];
-    let userDoc = null;
-    let userRole = null;
-
-    for (const col of collections) {
-      const q = await getDocs(collection(db, col));
-      const docSnap = q.docs.find(
-        (doc) => doc.data().school_email === emailTrimmed
-      );
-
-      if (docSnap) {
-        userDoc = docSnap.data();
-        userRole = col;
-        break;
+      if (userRole === "students") {
+        navigate("/student/dashboard");
+      } else if (userRole === "teachers") {
+        navigate("/teacher/dashboard");
+      } else {
+        toast.error("Unknown user role.");
       }
+    } catch (error) {
+      console.error(error);
+      toast.error("Login failed: " + (error?.message || error));
+    } finally {
+      setLoading(false);
     }
+  };
 
-    if (!userDoc) {
-      toast.error("No user record found in Firestore!");
+  // --- Mobile-only swipe handling (NO button toggles) ---
+  const onTouchStart = useCallback((e) => {
+    if (window.innerWidth >= 768) return;
+    touchStartY.current = e.touches?.[0]?.clientY ?? null;
+    touchCurrentY.current = touchStartY.current;
+    isDraggingPanel.current = true;
+  }, []);
+
+  const onTouchMove = useCallback((e) => {
+    if (!isDraggingPanel.current || touchStartY.current == null) return;
+    touchCurrentY.current = e.touches?.[0]?.clientY ?? touchCurrentY.current;
+  }, []);
+
+  const onTouchEnd = useCallback(() => {
+    if (!isDraggingPanel.current || touchStartY.current == null || touchCurrentY.current == null) {
+      isDraggingPanel.current = false;
+      touchStartY.current = null;
+      touchCurrentY.current = null;
       return;
     }
-
-    // ✅ Save student or teacher info
-    localStorage.setItem(
-      "user",
-      JSON.stringify({
-        uid: userCredential.user.uid,
-        role: userRole === "students" ? "student" : "teacher",
-        email: emailTrimmed,
-      })
-    );
-
-    if (userRole === "students") {
-      navigate("/student/dashboard");
-    } else if (userRole === "teachers") {
-      navigate("/teacher/dashboard");
-    } else {
-      toast.error("Unknown user role.");
+    const deltaY = (touchCurrentY.current ?? 0) - (touchStartY.current ?? 0);
+    if (deltaY < -60) {
+      setMobileAnnouncementsOpen(true);
+    } else if (deltaY > 60) {
+      setMobileAnnouncementsOpen(false);
     }
-  } catch (error) {
-    console.error(error);
-    toast.error("Login failed: " + error.message);
-  } finally {
-    setLoading(false);
-  }
-};
+    isDraggingPanel.current = false;
+    touchStartY.current = null;
+    touchCurrentY.current = null;
+  }, []);
 
+  useEffect(() => {
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchend", onTouchEnd);
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [onTouchStart, onTouchMove, onTouchEnd]);
+
+  // --- Render ---
   return (
-    <div className="min-h-screen w-screen flex overflow-hidden bg-[#f2f4fa] relative">
-      {/* LEFT SIDE */}
-      <div className="relative w-[70%] overflow-hidden">
+    <div className="min-h-screen w-screen flex flex-col md:flex-row overflow-x-hidden bg-[#f2f4fa] relative">
+      {/* LEFT SIDE - full width on mobile, 70% on desktop */}
+      <div className="w-full md:w-[70%] flex-shrink-0">
         <AnimatePresence mode="wait">
           {!showRegister ? (
             <motion.div
@@ -170,10 +202,10 @@ const handleLogin = async (e) => {
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: -200, opacity: 0 }}
               transition={{ duration: 0.15, ease: "easeInOut" }}
-              className="absolute inset-0 flex flex-col bg-white"
+              className="flex flex-col bg-white min-h-screen"
             >
               {/* HEADER */}
-              <div className="relative h-24 w-full mb-4 mt-2">
+              <div className="relative h-24 w-full">
                 <img
                   src={bannerBottom}
                   alt="Top Banner"
@@ -191,7 +223,9 @@ const handleLogin = async (e) => {
                       <p>Computer Studies</p>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-20">
+
+                  {/* desktop imagery unchanged */}
+                  <div className="hidden md:flex items-center space-x-20">
                     <img
                       src={anniversary29}
                       alt="29 Years"
@@ -206,13 +240,39 @@ const handleLogin = async (e) => {
                 </div>
               </div>
 
-              {/* LOGIN FORM */}
-              <div className="flex-1 flex items-center justify-center">
-                <div className="bg-white border border-[#5F75AF] rounded-md p-8 w-full max-w-sm shadow-lg">
-                  <h2 className="text-xl font-bold text-center mb-2 text-[#5F75AF]">
+              {/* Mobile swipe handle below header (visual only) */}
+              <div className="md:hidden w-full">
+                <div className="w-full px-6 -mt-2">
+                  <div className="h-12 flex items-center justify-center relative">
+                    <div className="w-44 h-8 bg-gradient-to-b from-[#1f5b86] to-[#2b79a6] rounded-full flex items-center justify-center text-white text-xs font-semibold shadow-inner">
+                      Announcements
+                    </div>
+
+                    {/* Animated swipe indicator (chevrons) to show swipeability */}
+                    <motion.div
+                      className="absolute -bottom-3 flex flex-col items-center gap-1 pointer-events-none"
+                      aria-hidden
+                      animate={{ y: [0, -6, 0] }}
+                      transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                    >
+                      <svg className="w-4 h-4 text-white/90" viewBox="0 0 24 24" fill="none">
+                        <path d="M6 15l6-6 6 6" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <svg className="w-4 h-4 text-white/60 opacity-80" viewBox="0 0 24 24" fill="none">
+                        <path d="M6 15l6-6 6 6" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </motion.div>
+                  </div>
+                </div>
+              </div>
+
+              {/* LOGIN FORM centered */}
+              <div className="flex-1 flex items-start justify-center py-45">
+                <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-sm shadow-lg mx-6">
+                  <h2 className="text-xl font-bold text-center mb-1 text-[#5F75AF]">
                     Attendance Monitoring Portal
                   </h2>
-                  <p className="text-center text-sm text-[#5F75AF] mb-8">
+                  <p className="text-center text-sm text-[#5F75AF] mb-6">
                     Bacoor Branch
                   </p>
 
@@ -226,66 +286,34 @@ const handleLogin = async (e) => {
                       className="text-[#5F75AF] placeholder-[#5F75AF]"
                     />
 
-              <div className="relative">
-                <InputField
-                  label="Password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className="text-[#5F75AF] placeholder-[#5F75AF]"
-                />
+                    <div className="relative">
+                      <InputField
+                        label="Password"
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Enter your password"
+                        className="text-[#5F75AF] placeholder-[#5F75AF]"
+                      />
+                      <span
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-9 cursor-pointer text-[#5F75AF]"
+                        aria-hidden
+                      >
+                        {showPassword ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 15.937 7.24 19.5 12 19.5c1.563 0 3.06-.34 4.417-.95M9.88 9.88a3 3 0 104.24 4.24" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 15l5.25 5.25M4.5 4.5l15 15" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.272 4.5 12 4.5c4.728 0 8.577 3.01 9.964 7.183a1.012 1.012 0 010 .639C20.577 16.49 16.728 19.5 12 19.5c-4.728 0-8.577-3.01-9.964-7.178z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                        )}
+                      </span>
+                    </div>
 
-                {/* 👁 Simple eye icon toggle (no external library) */}
-                <span
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-9 cursor-pointer text-[#5F75AF]"
-                >
-                  {showPassword ? (
-                    // 👁 Eye-slash icon
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth="1.5"
-                      stroke="currentColor"
-                      className="w-5 h-5"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 15.937 7.24 19.5 12 19.5c1.563 0 3.06-.34 4.417-.95M9.88 9.88a3 3 0 104.24 4.24"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M15 15l5.25 5.25M4.5 4.5l15 15"
-                      />
-                    </svg>
-                  ) : (
-                    // 👁 Regular eye icon
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth="1.5"
-                      stroke="currentColor"
-                      className="w-5 h-5"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.272 4.5 12 4.5c4.728 0 8.577 3.01 9.964 7.183a1.012 1.012 0 010 .639C20.577 16.49 16.728 19.5 12 19.5c-4.728 0-8.577-3.01-9.964-7.178z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                  )}
-                </span>
-              </div>
                     <div className="flex justify-center">
                       <ReCAPTCHA
                         sitekey="6LdTcQ8sAAAAAEX8gXXKeEvkAKft0STWWZo3jZqK"
@@ -305,113 +333,145 @@ const handleLogin = async (e) => {
                       {loading ? "Signing in..." : "Sign In"}
                     </button>
                   </form>
-
-                  {/* Register Link */}
-                  <p
-                    onClick={() => setShowRegister(true)}
-                    className="text-center mt-4 text-sm text-[#5F75AF] cursor-pointer hover:underline"
-                  >
-                    Don’t have an account? Register
-                  </p>
                 </div>
               </div>
 
-              {/* FOOTER */}
-              <div className="h-5 w-full flex items-center justify-center">
-                <img
-                  src={bannerBottom}
-                  alt="Bottom Banner"
-                  className="h-full w-full object-cover"
-                />
-              </div>
+              {/* MOBILE ANNOUNCEMENTS — exact visual from image, appear below header + hint strip */}
+              <AnimatePresence>
+                {mobileAnnouncementsOpen && (
+                  <motion.section
+                    key="mobile-announcements"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    transition={{ duration: 0.28 }}
+                    className="md:hidden w-full px-6 pb-6"
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchMove={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                  >
+                    <div className="relative">
+                      {/* top banner + circular logo */}
+                      <div className="w-full overflow-hidden rounded-t-sm">
+                        <div className="relative">
+                          <img src={bannerBottom} alt="banner" className="w-full h-20 object-cover" />
+                          <div className="absolute left-4 -bottom-6">
+                            <div className="w-16 h-16 rounded-full bg-white p-2 flex items-center justify-center border-2 border-white shadow">
+                              <img src={aicsLogo} alt="logo" className="w-full h-full object-contain" />
+                            </div>
+                          </div>
+                          <img src={peoples} alt="people" className="absolute right-4 top-1 h-20 object-contain" />
+                        </div>
+                      </div>
+
+                      {/* main rounded announcement panel with large rounded bottom */}
+                      <div
+                        className="w-full bg-gradient-to-b from-[#2b6aa3] to-[#2d5f83] text-white p-5 rounded-b-[120px] shadow-2xl relative overflow-hidden"
+                        style={{ minHeight: "52vh" }}
+                      >
+                        {/* decorative handle with centered text + animated chevrons */}
+                        <div className="w-full flex justify-center mb-2 relative">
+                          <div className="w-44 h-8 bg-gradient-to-b from-[#1f5b86] to-[#2b79a6] rounded-full flex items-center justify-center text-white text-xs font-semibold shadow-inner">
+                            Announcements
+                          </div>
+
+                          {/* subtle animated chevrons next to the handle to show swipe */}
+                          <motion.div
+                            className="absolute -right-8 top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-1 pointer-events-none"
+                            aria-hidden
+                            animate={{ y: [0, -6, 0] }}
+                            transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                          >
+                            <svg className="w-3 h-3 text-white/90" viewBox="0 0 24 24" fill="none">
+                              <path d="M6 15l6-6 6 6" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            <svg className="w-3 h-3 text-white/70" viewBox="0 0 24 24" fill="none">
+                              <path d="M6 15l6-6 6 6" stroke="white" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </motion.div>
+                        </div>
+
+                        <h3 className="sr-only">Announcements</h3>
+
+                        <div className="space-y-4 px-1 max-h-[40vh] overflow-y-auto scrollbar-thin scrollbar-thumb-white/30">
+                          {announcements.length === 0 ? (
+                            <div className="text-sm text-white/80 px-2">No announcements at the moment.</div>
+                          ) : (
+                            announcements.map((a) => (
+                              <div key={a.id} className="bg-white/6 border border-white/30 rounded-lg p-4">
+                                <h4 className="text-sm font-semibold text-white/95">{a.title}</h4>
+                                <p className="text-[13px] mt-2 leading-snug whitespace-pre-line text-white/90">{a.content}</p>
+                                <div className="mt-3 text-[11px] text-white/70 flex items-center justify-between">
+                                  <span>Expires: {new Date(a.expiration).toLocaleDateString()}</span>
+                                  <span className="text-xs bg-white/10 px-2 py-0.5 rounded">{a.priority ?? "Info"}</span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        {/* bottom center swipe hint (non-clickable) */}
+                        <div className="absolute -bottom-12 left-0 right-0 flex justify-center pointer-events-none">
+                          <div className="w-16 h-16 bg-gradient-to-b from-transparent to-white/6 rounded-full flex items-center justify-center">
+                            <svg width="20" height="20" viewBox="0 0 24 24" className="opacity-80">
+                              <path d="M12 16l-6-6h12l-6 6z" fill="white" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.section>
+                )}
+              </AnimatePresence>
             </motion.div>
           ) : (
-            <motion.div
-              key="register-left"
-              initial={{ x: -300, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -300, opacity: 0 }}
-              transition={{ duration: 0.6, ease: "easeInOut" }}
-              className="absolute inset-0 flex items-center justify-center bg-[#5F75AF]"
-            >
-              <div className="text-white text-center">
-                <h1 className="text-3xl font-bold mb-2">
-                  Welcome to AICS Attendance Portal
-                </h1>
-                <p className="text-sm opacity-90">
-                  Join us and manage your attendance seamlessly.
-                </p>
-              </div>
-            </motion.div>
+            <div className="text-white text-center p-6">
+              <h1 className="text-3xl font-bold mb-2">
+                Welcome to AICS Attendance Portal
+              </h1>
+              <p className="text-sm opacity-90">
+                Join us and manage your attendance seamlessly.
+              </p>
+            </div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* RIGHT SIDE - 🔔 ANNOUNCEMENTS PANEL */}
-      <div className="relative w-[30%] overflow-hidden">
-        <AnimatePresence mode="wait">
-          {!showRegister ? (
-            <motion.div
-              key="announcements"
-              initial={{ x: 200, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 200, opacity: 0 }}
-              transition={{ duration: 0.6, ease: "easeInOut" }}
-              className="absolute inset-0 flex flex-col items-center justify-start p-6"
-              style={{
-                backgroundImage: `url(${announcementBg})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }}
-            >
-              <div className="w-full h-full bg-[#00000060] border-2 border-white rounded-lg p-6 overflow-hidden">
-                <h2 className="text-lg font-bold text-white mb-3">
-                  Announcements
-                </h2>
+      {/* RIGHT SIDE - Desktop announcements (unchanged) */}
+      <div className="hidden md:block md:w-[30%]">
+        <div className="relative w-full h-full overflow-hidden">
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-start p-6"
+            style={{
+              backgroundImage: `url(${announcementBg})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            <div className="w-full h-full bg-[#00000060] border-2 border-white rounded-lg p-6 overflow-hidden">
+              <h2 className="text-lg font-bold text-white mb-3">Announcements</h2>
 
-                {announcements.length === 0 ? (
-                  <p className="text-gray-200 text-sm">No announcements yet.</p>
-                ) : (
-                  <ul className="space-y-3 text-lg text-white max-h-[70vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/40">
-                    {announcements.map((a) => (
-                      <li
-                        key={a.id}
-                        className="border border-white/30 rounded-lg p-5 hover:bg-white/20 transition"
-                      >
-                        <h4 className="font-semibold">{a.title}</h4>
-                        <p className="text-xs opacity-90 whitespace-pre-line">
-                          {a.content}
-                        </p>
-
-                        <p className="text-[10px] text-gray-300 mt-1">
-                          Expires:{" "}
-                          {new Date(a.expiration).toLocaleDateString()}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="register-right"
-              initial={{ x: 200, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 200, opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="absolute inset-0 flex items-center justify-center bg-white p-6"
-            >
-              <div className="w-full max-w-md">
-                <h2 className="text-xl font-bold text-[#5F75AF] text-center mb-6">
-                  Create Your Account
-                </h2>
-
-                <RegisterForm onClose={() => setShowRegister(false)} />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              {announcements.length === 0 ? (
+                <p className="text-gray-200 text-sm">No announcements yet.</p>
+              ) : (
+                <ul className="space-y-3 text-lg text-white max-h-[70vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/40">
+                  {announcements.map((a) => (
+                    <li
+                      key={a.id}
+                      className="border border-white/30 rounded-lg p-5 hover:bg-white/20 transition"
+                    >
+                      <h4 className="font-semibold">{a.title}</h4>
+                      <p className="text-xs opacity-90 whitespace-pre-line">{a.content}</p>
+                      <p className="text-[10px] text-gray-300 mt-1">
+                        Expires: {new Date(a.expiration).toLocaleDateString()}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
