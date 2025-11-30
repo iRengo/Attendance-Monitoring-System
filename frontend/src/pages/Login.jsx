@@ -280,6 +280,7 @@ export default function Login() {
                 </div>
               </div>
 
+
               {/* LOGIN FORM centered */}
               <div className="flex-1 flex items-start justify-center py-6">
                 <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-sm shadow-lg mx-6">
@@ -350,106 +351,62 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* MOBILE ANNOUNCEMENTS — draggable & swipeable panel with animated show/hide
-                  NOTE: panel is hidden initially. User must swipe down to show, swipe up to hide. */}
-              <AnimatePresence>
-                {mobileAnnouncementsOpen && (
-                  <motion.section
-                    key="mobile-announcements"
-                    initial={{ opacity: 0, y: -220 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -220 }}
-                    transition={{ duration: 0.32, ease: "easeOut" }}
-                    className="md:hidden w-full px-6 pb-6"
-                    onTouchStart={(e) => e.stopPropagation()}
-                    onTouchMove={(e) => e.stopPropagation()}
-                    onTouchEnd={(e) => e.stopPropagation()}
+            {/* MOBILE ANNOUNCEMENTS — overlay on top of login */}
+            <AnimatePresence>
+              {mobileAnnouncementsOpen && (
+                <motion.section
+                  key="mobile-announcements"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="fixed inset-0 z-50 md:hidden flex items-start justify-center bg-black/40 p-6"
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchMove={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => e.stopPropagation()}
+                >
+                  <motion.div
+                    drag="y"
+                    dragConstraints={{ top: -600, bottom: 0 }}
+                    dragElastic={0.18}
+                    onDragEnd={(event, info) => {
+                      const shouldOpen = decidePanelState(info.offset.y, info.velocity.y);
+                      setMobileAnnouncementsOpen(Boolean(shouldOpen));
+                    }}
+                    className="relative w-full max-w-md"
+                    style={{ touchAction: "pan-y" }}
                   >
-                    <motion.div
-                      drag="y"
-                      // allow dragging upwards to hide (negative) and small downwards movement
-                      dragConstraints={{ top: -600, bottom: 0 }}
-                      dragElastic={0.18}
-                      onDragEnd={(event, info) => {
-                        // info.offset.y: positive -> dragged down, negative -> dragged up
-                        const shouldOpen = decidePanelState(info.offset.y, info.velocity.y);
-                        setMobileAnnouncementsOpen(Boolean(shouldOpen));
-                      }}
-                      className="relative mx-auto w-full max-w-md"
-                      style={{ touchAction: "pan-y" }} // allow natural vertical movement
+                    <div
+                      className="w-full bg-gradient-to-b from-[#2b6aa3] to-[#2d5f83] text-white p-5 rounded-2xl shadow-2xl relative overflow-hidden"
+                      style={{ minHeight: "50vh" }}
                     >
-                      {/* top banner + overlapping circular logo */}
-                      <div className="w-full overflow-hidden rounded-t-sm">
-                        <div className="relative">
-                          <img src={bannerBottom} alt="banner" className="w-full h-20 object-cover" />
-                          <div className="absolute left-4 -bottom-6">
-                            <div className="w-16 h-16 rounded-full bg-white p-2 flex items-center justify-center border-2 border-white shadow">
-                              <img src={aicsLogo} alt="logo" className="w-full h-full object-contain" />
-                            </div>
-                          </div>
-                          <img src={peoples} alt="people" className="absolute right-4 top-1 h-20 object-contain" />
-                        </div>
-                      </div>
-
-                      {/* main rounded announcement panel with large rounded bottom */}
-                      <div
-                        className="w-full bg-gradient-to-b from-[#2b6aa3] to-[#2d5f83] text-white p-5 rounded-b-[120px] shadow-2xl relative overflow-hidden"
-                        style={{ minHeight: "52vh" }}
-                      >
-                        {/* decorative handle with centered text + animated chevrons */}
-                        <div className="w-full flex justify-center mb-2 relative">
-                          <div className="w-44 h-8 bg-gradient-to-b from-[#1f5b86] to-[#2b79a6] rounded-full flex items-center justify-center text-white text-xs font-semibold shadow-inner">
-                            Announcements
-                          </div>
-
-                          {/* subtle animated chevrons next to the handle to show swipe */}
-                          <motion.div
-                            className="absolute -right-8 top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-1 pointer-events-none"
-                            aria-hidden
-                            animate={{ y: [0, -6, 0] }}
-                            transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
-                          >
-                            <svg className="w-3 h-3 text-white/90" viewBox="0 0 24 24" fill="none">
-                              <path d="M6 15l6-6 6 6" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            <svg className="w-3 h-3 text-white/70" viewBox="0 0 24 24" fill="none">
-                              <path d="M6 15l6-6 6 6" stroke="white" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </motion.div>
-                        </div>
-
-                        <h3 className="sr-only">Announcements</h3>
-
-                        <div className="space-y-4 px-1 max-h-[40vh] overflow-y-auto scrollbar-thin scrollbar-thumb-white/30">
-                          {announcements.length === 0 ? (
-                            <div className="text-sm text-white/80 px-2">No announcements at the moment.</div>
-                          ) : (
-                            announcements.map((a) => (
-                              <div key={a.id} className="bg-white/6 border border-white/30 rounded-lg p-4">
-                                <h4 className="text-sm font-semibold text-white/95">{a.title}</h4>
-                                <p className="text-[13px] mt-2 leading-snug whitespace-pre-line text-white/90">{a.content}</p>
-                                <div className="mt-3 text-[11px] text-white/70 flex items-center justify-between">
-                                  <span>Expires: {new Date(a.expiration).toLocaleDateString()}</span>
-                                  <span className="text-xs bg-white/10 px-2 py-0.5 rounded">{a.priority ?? "Info"}</span>
-                                </div>
+                      <h3 className="text-white font-semibold text-center mb-4">Announcements</h3>
+                      <div className="space-y-4 max-h-[40vh] overflow-y-auto scrollbar-thin scrollbar-thumb-white/30">
+                        {announcements.length === 0 ? (
+                          <div className="text-sm text-white/80 px-2">No announcements at the moment.</div>
+                        ) : (
+                          announcements.map((a) => (
+                            <div key={a.id} className="bg-white/6 border border-white/30 rounded-lg p-4">
+                              <h4 className="text-sm font-semibold text-white/95">{a.title}</h4>
+                              <p className="text-[13px] mt-2 leading-snug whitespace-pre-line text-white/90">{a.content}</p>
+                              <div className="mt-3 text-[11px] text-white/70 flex items-center justify-between">
+                                <span>Expires: {new Date(a.expiration).toLocaleDateString()}</span>
+                                <span className="text-xs bg-white/10 px-2 py-0.5 rounded">{a.priority ?? "Info"}</span>
                               </div>
-                            ))
-                          )}
-                        </div>
-
-                        {/* bottom center swipe hint (non-clickable) */}
-                        <div className="absolute -bottom-12 left-0 right-0 flex justify-center pointer-events-none">
-                          <div className="w-16 h-16 bg-gradient-to-b from-transparent to-white/6 rounded-full flex items-center justify-center">
-                            <svg width="20" height="20" viewBox="0 0 24 24" className="opacity-80">
-                              <path d="M12 16l-6-6h12l-6 6z" fill="white" />
-                            </svg>
-                          </div>
-                        </div>
+                            </div>
+                          ))
+                        )}
                       </div>
-                    </motion.div>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+
+                      {/* SWIPE UP hint */}
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-white text-sm opacity-80 font-semibold">
+                        Swipe Up to Close
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.section>
+              )}
+            </AnimatePresence>
             </motion.div>
           ) : (
             <div className="text-white text-center p-6">
