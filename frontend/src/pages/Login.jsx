@@ -148,7 +148,7 @@ export default function Login() {
   };
 
   // --- Mobile-only swipe handling (NO button toggles) ---
-  // These keep the "swipe anywhere vertically" behavior to open/close the panel.
+  // Inverted behavior: swipe down (positive deltaY) opens panel, swipe up (negative) closes it.
   const onTouchStart = useCallback((e) => {
     // only on small screens
     if (window.innerWidth >= 768) return;
@@ -170,10 +170,10 @@ export default function Login() {
       return;
     }
     const deltaY = (touchCurrentY.current ?? 0) - (touchStartY.current ?? 0);
-    // Swipe up to open (negative delta) or swipe down to close
-    if (deltaY < -60) {
+    // NEW: swipe down opens (deltaY > +60), swipe up closes (deltaY < -60)
+    if (deltaY > 60) {
       setMobileAnnouncementsOpen(true);
-    } else if (deltaY > 60) {
+    } else if (deltaY < -60) {
       setMobileAnnouncementsOpen(false);
     }
     isDraggingPanel.current = false;
@@ -194,10 +194,11 @@ export default function Login() {
 
   // Helper used by onDragEnd to decide open/close based on drag offset/velocity
   function decidePanelState(offsetY = 0, velocityY = 0) {
-    // If user drags down (positive offsetY) enough or with downward velocity => close
-    if (offsetY > 80 || velocityY > 800) return false;
-    // If user drags up (negative offsetY) enough or with upward velocity => open
-    if (offsetY < -80 || velocityY < -800) return true;
+    // offsetY positive => dragged down; negative => dragged up
+    // If user drags down enough or with downward velocity => open
+    if (offsetY > 80 || velocityY > 800) return true;
+    // If user drags up enough or with upward velocity => close
+    if (offsetY < -80 || velocityY < -800) return false;
     // Otherwise keep current
     return mobileAnnouncementsOpen;
   }
@@ -280,7 +281,7 @@ export default function Login() {
               </div>
 
               {/* LOGIN FORM centered */}
-              <div className="flex-1 flex items-start justify-center py-45">
+              <div className="flex-1 flex items-start justify-center py-6">
                 <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-sm shadow-lg mx-6">
                   <h2 className="text-xl font-bold text-center mb-1 text-[#5F75AF]">
                     Attendance Monitoring Portal
@@ -349,14 +350,15 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* MOBILE ANNOUNCEMENTS — draggable & swipeable panel with animated show/hide */}
+              {/* MOBILE ANNOUNCEMENTS — draggable & swipeable panel with animated show/hide
+                  NOTE: panel is hidden initially. User must swipe down to show, swipe up to hide. */}
               <AnimatePresence>
                 {mobileAnnouncementsOpen && (
                   <motion.section
                     key="mobile-announcements"
-                    initial={{ opacity: 0, y: 220 }}
+                    initial={{ opacity: 0, y: -220 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 220 }}
+                    exit={{ opacity: 0, y: -220 }}
                     transition={{ duration: 0.32, ease: "easeOut" }}
                     className="md:hidden w-full px-6 pb-6"
                     onTouchStart={(e) => e.stopPropagation()}
@@ -365,16 +367,16 @@ export default function Login() {
                   >
                     <motion.div
                       drag="y"
-                      dragConstraints={{ top: 0, bottom: 600 }}
-                      dragElastic={0.25}
+                      // allow dragging upwards to hide (negative) and small downwards movement
+                      dragConstraints={{ top: -600, bottom: 0 }}
+                      dragElastic={0.18}
                       onDragEnd={(event, info) => {
-                        // info.offset.y is how much the panel was dragged (positive => down)
-                        // info.velocity.y is the drag velocity
+                        // info.offset.y: positive -> dragged down, negative -> dragged up
                         const shouldOpen = decidePanelState(info.offset.y, info.velocity.y);
                         setMobileAnnouncementsOpen(Boolean(shouldOpen));
                       }}
                       className="relative mx-auto w-full max-w-md"
-                      style={{ touchAction: "pan-y" }} // let vertical scrolling/dragging behave
+                      style={{ touchAction: "pan-y" }} // allow natural vertical movement
                     >
                       {/* top banner + overlapping circular logo */}
                       <div className="w-full overflow-hidden rounded-t-sm">
