@@ -30,7 +30,7 @@ export default function Login() {
   // Mobile announcements state (hidden by default)
   const [mobileAnnouncementsOpen, setMobileAnnouncementsOpen] = useState(false);
 
-  // Touch tracking refs
+  // Touch tracking refs (keeps the "swipe anywhere vertically" open/close behavior)
   const touchStartY = useRef(null);
   const touchCurrentY = useRef(null);
   const isDraggingPanel = useRef(false);
@@ -148,7 +148,9 @@ export default function Login() {
   };
 
   // --- Mobile-only swipe handling (NO button toggles) ---
+  // These keep the "swipe anywhere vertically" behavior to open/close the panel.
   const onTouchStart = useCallback((e) => {
+    // only on small screens
     if (window.innerWidth >= 768) return;
     touchStartY.current = e.touches?.[0]?.clientY ?? null;
     touchCurrentY.current = touchStartY.current;
@@ -168,6 +170,7 @@ export default function Login() {
       return;
     }
     const deltaY = (touchCurrentY.current ?? 0) - (touchStartY.current ?? 0);
+    // Swipe up to open (negative delta) or swipe down to close
     if (deltaY < -60) {
       setMobileAnnouncementsOpen(true);
     } else if (deltaY > 60) {
@@ -188,6 +191,16 @@ export default function Login() {
       document.removeEventListener("touchend", onTouchEnd);
     };
   }, [onTouchStart, onTouchMove, onTouchEnd]);
+
+  // Helper used by onDragEnd to decide open/close based on drag offset/velocity
+  function decidePanelState(offsetY = 0, velocityY = 0) {
+    // If user drags down (positive offsetY) enough or with downward velocity => close
+    if (offsetY > 80 || velocityY > 800) return false;
+    // If user drags up (negative offsetY) enough or with upward velocity => open
+    if (offsetY < -80 || velocityY < -800) return true;
+    // Otherwise keep current
+    return mobileAnnouncementsOpen;
+  }
 
   // --- Render ---
   return (
@@ -336,22 +349,34 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* MOBILE ANNOUNCEMENTS — exact visual from image, appear below header + hint strip */}
+              {/* MOBILE ANNOUNCEMENTS — draggable & swipeable panel with animated show/hide */}
               <AnimatePresence>
                 {mobileAnnouncementsOpen && (
                   <motion.section
                     key="mobile-announcements"
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 220 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 20 }}
-                    transition={{ duration: 0.28 }}
+                    exit={{ opacity: 0, y: 220 }}
+                    transition={{ duration: 0.32, ease: "easeOut" }}
                     className="md:hidden w-full px-6 pb-6"
                     onTouchStart={(e) => e.stopPropagation()}
                     onTouchMove={(e) => e.stopPropagation()}
                     onTouchEnd={(e) => e.stopPropagation()}
                   >
-                    <div className="relative">
-                      {/* top banner + circular logo */}
+                    <motion.div
+                      drag="y"
+                      dragConstraints={{ top: 0, bottom: 600 }}
+                      dragElastic={0.25}
+                      onDragEnd={(event, info) => {
+                        // info.offset.y is how much the panel was dragged (positive => down)
+                        // info.velocity.y is the drag velocity
+                        const shouldOpen = decidePanelState(info.offset.y, info.velocity.y);
+                        setMobileAnnouncementsOpen(Boolean(shouldOpen));
+                      }}
+                      className="relative mx-auto w-full max-w-md"
+                      style={{ touchAction: "pan-y" }} // let vertical scrolling/dragging behave
+                    >
+                      {/* top banner + overlapping circular logo */}
                       <div className="w-full overflow-hidden rounded-t-sm">
                         <div className="relative">
                           <img src={bannerBottom} alt="banner" className="w-full h-20 object-cover" />
@@ -419,7 +444,7 @@ export default function Login() {
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   </motion.section>
                 )}
               </AnimatePresence>
