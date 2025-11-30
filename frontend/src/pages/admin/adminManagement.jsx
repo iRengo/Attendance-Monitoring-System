@@ -41,6 +41,21 @@ export default function UserManagement() {
   const [addModalUser, setAddModalUser] = useState(null);
   const [creating, setCreating] = useState(false);
 
+  // Mobile detection: we will render a mobile-optimized card/list view when true.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 639px)"); // Tailwind 'sm' breakpoint
+    const handle = (e) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    if (mq.addEventListener) mq.addEventListener("change", handle);
+    else mq.addListener(handle);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", handle);
+      else mq.removeListener(handle);
+    };
+  }, []);
+
   const defaultNewStudent = {
     firstname: "",
     middlename: "",
@@ -391,7 +406,6 @@ export default function UserManagement() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(addModalUser),
       });
-      
       const data = await res.json();
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || "Failed to create student.");
@@ -473,14 +487,86 @@ export default function UserManagement() {
           />
         )}
 
+        {/* TABLE (desktop) vs MOBILE CARD VIEW:
+            - Desktop/table: keep the original desktop dimensions/behaviour (render UsersTable).
+            - Mobile: render compact/tap-friendly cards (same data + actions).
+        */}
         {showingTable && (
-          <UsersTable
-            loading={loading}
-            users={filteredUsers}
-            onView={handleView}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-          />
+          <>
+            {/* Desktop/table view: rendered when NOT mobile */}
+            {!isMobile && (
+              <div className="w-full overflow-x-auto" aria-label="Users table wrapper">
+                {/* Keep a min width to preserve desktop column sizing and allow horizontal scroll when necessary */}
+                <div className="min-w-[700px]">
+                  <UsersTable
+                    loading={loading}
+                    users={filteredUsers}
+                    onView={handleView}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Mobile card/list view: rendered when mobile */}
+            {isMobile && (
+              <div className="space-y-3">
+                {filteredUsers.length === 0 && (
+                  <div className="text-center text-sm text-gray-500 py-6">
+                    No users found.
+                  </div>
+                )}
+                {filteredUsers.map((u) => (
+                  <div
+                    key={u.id}
+                    className="bg-gray-50 border border-gray-200 rounded-lg p-3 shadow-sm flex items-start justify-between gap-3"
+                    role="listitem"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-gray-900 truncate">
+                            {u.name}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate">{u.email}</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs text-gray-400">
+                        <span className="inline-block bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
+                          {u.role}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-2">
+                      <button
+                        onClick={() => handleView(u)}
+                        className="w-20 text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        aria-label={`View ${u.name}`}
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => handleEdit(u)}
+                        className="w-20 text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                        aria-label={`Edit ${u.name}`}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(u)}
+                        className="w-20 text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                        aria-label={`Delete ${u.name}`}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {viewUser && !editUser && (
