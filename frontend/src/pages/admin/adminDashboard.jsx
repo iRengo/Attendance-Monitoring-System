@@ -209,36 +209,48 @@ export default function AdminDashboard() {
   useEffect(() => {
     const todayKey = getTodayKey();
     const sessionsRef = collection(db, "attendance_sessions");
+  
     const unsub = onSnapshot(
       sessionsRef,
       (snap) => {
         try {
           const todayDocs = snap.docs.filter((d) => extractDateFromId(d.id) === todayKey);
-          let presentSum = 0;
-          let absentSum = 0;
-
+          let presentSet = new Set();
+          let absentSet = new Set();
+  
           todayDocs.forEach((docSnap) => {
             const data = docSnap.data() || {};
+  
+            // Prefer explicit present/absent arrays if they exist
             const presentArr = pickArrayField(data, ["studentsPresent", "present", "presentIds"]) || [];
             const absentArr = pickArrayField(data, ["studentsAbsent", "absent", "absentIds"]) || [];
-
-            presentSum += presentArr.length;
-            absentSum += absentArr.length;
-
-            const entries = Array.isArray(data.entries) ? data.entries : [];
-            entries.forEach((e) => {
-              const st = (e?.status || "unknown").toLowerCase();
-              if (st === "present" || st === "late") presentSum++;
-              else if (st === "absent") absentSum++;
-            });
+  
+            presentArr.forEach((id) => presentSet.add(id));
+            absentArr.forEach((id) => absentSet.add(id));
+  
+            // Only use entries if explicit arrays don't exist
+            if (!presentArr.length && !absentArr.length && Array.isArray(data.entries)) {
+              data.entries.forEach((e) => {
+                const st = (e?.status || "unknown").toLowerCase();
+                if (st === "present" || st === "late") presentSet.add(e.studentId || e.id);
+                else if (st === "absent") absentSet.add(e.studentId || e.id);
+              });
+            }
           });
-
-          const denom = presentSum + absentSum;
-          const percent = denom > 0 ? Math.round((presentSum / denom) * 100) : 0;
+  
+          // Remove duplicates: if a student appears in both, consider them present
+          absentSet.forEach((id) => {
+            if (presentSet.has(id)) absentSet.delete(id);
+          });
+  
+          const presentCount = presentSet.size;
+          const absentCount = absentSet.size;
+          const percent = presentCount + absentCount > 0 ? Math.round((presentCount / (presentCount + absentCount)) * 100) : 0;
+  
           setAttendancePercent(percent);
           setPresenceData([
-            { name: "Present", value: presentSum },
-            { name: "Absent", value: absentSum },
+            { name: "Present", value: presentCount },
+            { name: "Absent", value: absentCount },
           ]);
         } catch (err) {
           console.error(err);
@@ -246,6 +258,7 @@ export default function AdminDashboard() {
       },
       (err) => console.error(err)
     );
+  
     return () => unsub();
   }, []);
 
