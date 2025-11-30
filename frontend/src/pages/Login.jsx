@@ -282,7 +282,7 @@ export default function Login() {
 
 
               {/* LOGIN FORM centered */}
-              <div className="flex-1 flex items-start justify-center py-6">
+              <div className="flex-1 flex items-start justify-center py-6 md:py-45">
                 <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-sm shadow-lg mx-6">
                   <h2 className="text-xl font-bold text-center mb-1 text-[#5F75AF]">
                     Attendance Monitoring Portal
