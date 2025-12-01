@@ -1,16 +1,28 @@
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  doc,
+  getDoc,
+  updateDoc,
+  setDoc,
+  Timestamp,
+  serverTimestamp,
+} from "firebase/firestore";
 import { db } from "../../firebase";
 import AdminLayout from "../../components/adminLayout";
 import { toast } from "react-toastify";
+import Swal from "sweetalert2";
 
 export default function AdminKiosk() {
   const [kiosks, setKiosks] = useState([]);
+  const [keys, setKeys] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [loadingAssign, setLoadingAssign] = useState(false);
   const [editMode, setEditMode] = useState(null); // which kiosk is being edited
+  const [activeTab, setActiveTab] = useState("kiosks"); // kiosks | keys
 
-  // Mobile detection (Tailwind 'sm' breakpoint = 640px)
+  // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -25,7 +37,7 @@ export default function AdminKiosk() {
     };
   }, []);
 
-  // Fetch kiosks (real-time)
+  // Fetch kiosks
   useEffect(() => {
     const kiosksCollection = collection(db, "kiosks");
     const unsubscribe = onSnapshot(kiosksCollection, (snapshot) => {
@@ -38,16 +50,27 @@ export default function AdminKiosk() {
     return () => unsubscribe();
   }, []);
 
-  // ✅ Fetch rooms from the array in "rooms/roomlist"
+  // Fetch kiosk keys
+  useEffect(() => {
+    const keysCollection = collection(db, "kiosks_codes");
+    const unsubscribe = onSnapshot(keysCollection, (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({
+        key: doc.id,
+        ...doc.data(),
+      }));
+      setKeys(data.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds)); // newest first
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch rooms
   useEffect(() => {
     const fetchRooms = async () => {
       try {
         const roomDocRef = doc(db, "rooms", "roomlist");
         const roomDocSnap = await getDoc(roomDocRef);
-
         if (roomDocSnap.exists()) {
-          const data = roomDocSnap.data();
-          setRooms(data.roomlisted || []);
+          setRooms(roomDocSnap.data().roomlisted || []);
         } else {
           setRooms([]);
         }
@@ -56,7 +79,6 @@ export default function AdminKiosk() {
         toast.error("Failed to fetch rooms!");
       }
     };
-
     fetchRooms();
   }, []);
 
@@ -65,9 +87,7 @@ export default function AdminKiosk() {
     try {
       setLoadingAssign(true);
       const kioskRef = doc(db, "kiosks", kioskId);
-      await updateDoc(kioskRef, {
-        assignedRoomId: roomId,
-      });
+      await updateDoc(kioskRef, { assignedRoomId: roomId });
       toast.success(`Assigned ${roomId} to kiosk ${kioskId}`);
       setEditMode(null);
     } catch (err) {
@@ -78,22 +98,72 @@ export default function AdminKiosk() {
     }
   };
 
+  // Generate a new kiosk key
+  const handleGenerateKey = async () => {
+    try {
+      const key = Math.random().toString(36).substring(2, 10).toUpperCase();
+      const expiration = new Date();
+      expiration.setMinutes(expiration.getMinutes() + 5);
+
+      const keyRef = doc(db, "kiosks_codes", key);
+      await setDoc(keyRef, {
+        expiration: Timestamp.fromDate(expiration),
+        kioskId: null,
+        used: false,
+        usedAt: null,
+        createdAt: serverTimestamp(),
+      });
+
+      await Swal.fire({
+        icon: "success",
+        title: "Generated Key",
+        html: `<div class="text-7xl font-mono text-center text-blue-600">${key}</div><p class="mt-2">Expires in 5 minutes.</p>`,
+        confirmButtonText: "OK",
+      });
+    } catch (err) {
+      console.error("Failed to generate key:", err);
+      Swal.fire("Error", "Failed to generate key. See console.", "error");
+    }
+  };
+
   return (
     <AdminLayout title="Kiosk Management">
       <div className="w-full max-w-6xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-lg border border-gray-200">
+        {/* Header + Tabs */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
           <h2 className="text-2xl font-bold text-[#32487E]">Kiosk Management</h2>
-          <div className="text-sm text-gray-600">
-            {kiosks.length} kiosk{kiosks.length !== 1 ? "s" : ""}
+          <div className="flex gap-2">
+            <div className="flex gap-1">
+              <button
+                onClick={() => setActiveTab("kiosks")}
+                className={`px-4 py-2 rounded-md ${activeTab === "kiosks" ? "bg-[#415CA0] text-white" : "bg-gray-200 text-gray-700"}`}
+              >
+                Kiosks
+              </button>
+              <button
+                onClick={() => setActiveTab("keys")}
+                className={`px-4 py-2 rounded-md ${activeTab === "keys" ? "bg-[#415CA0] text-white" : "bg-gray-200 text-gray-700"}`}
+              >
+                Keys
+              </button>
+            </div>
+            {activeTab === "keys" && (
+              <button
+                onClick={handleGenerateKey}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+              >
+                Generate Key
+              </button>
+            )}
           </div>
         </div>
 
-        {kiosks.length === 0 ? (
-          <p className="text-gray-500 text-center py-10">No kiosks available.</p>
-        ) : (
+        {/* KIOSKS TAB */}
+        {activeTab === "kiosks" && (
           <>
-            {/* DESKTOP: table view (keeps original desktop dimensions/behaviour) */}
-            {!isMobile && (
+            {kiosks.length === 0 ? (
+              <p className="text-gray-500 text-center py-10">No kiosks available.</p>
+            ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm text-gray-700 border border-gray-200 rounded-lg">
                   <thead className="bg-[#415CA0] text-white text-left">
@@ -112,7 +182,6 @@ export default function AdminKiosk() {
                         className="border-b border-gray-200 hover:bg-gray-50 transition-all"
                       >
                         <td className="px-5 py-3 font-medium text-[#32487E]">{kiosk.id}</td>
-
                         <td className="px-5 py-3">
                           {editMode === kiosk.id ? (
                             <select
@@ -121,13 +190,9 @@ export default function AdminKiosk() {
                               onChange={(e) => handleAssignRoom(kiosk.id, e.target.value)}
                               defaultValue={kiosk.assignedRoomId || ""}
                             >
-                              <option value="" disabled>
-                                Select Room
-                              </option>
+                              <option value="" disabled>Select Room</option>
                               {rooms.map((roomName, index) => (
-                                <option key={index} value={roomName}>
-                                  {roomName}
-                                </option>
+                                <option key={index} value={roomName}>{roomName}</option>
                               ))}
                             </select>
                           ) : kiosk.assignedRoomId ? (
@@ -138,25 +203,19 @@ export default function AdminKiosk() {
                             <span className="text-gray-400 italic">Unassigned</span>
                           )}
                         </td>
-
                         <td className="px-5 py-3">{kiosk.name || "-"}</td>
                         <td className="px-5 py-3">{kiosk.serialNumber || "-"}</td>
-
                         <td className="px-5 py-3 text-center">
                           {editMode === kiosk.id ? (
                             <button
                               onClick={() => setEditMode(null)}
                               className="text-sm px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md transition"
-                            >
-                              Cancel
-                            </button>
+                            >Cancel</button>
                           ) : (
                             <button
                               onClick={() => setEditMode(kiosk.id)}
                               className="text-sm px-3 py-1 bg-[#415CA0] hover:bg-[#32487E] text-white rounded-md transition"
-                            >
-                              Edit
-                            </button>
+                            >Edit</button>
                           )}
                         </td>
                       </tr>
@@ -165,79 +224,38 @@ export default function AdminKiosk() {
                 </table>
               </div>
             )}
+          </>
+        )}
 
-            {/* MOBILE: card/list view (compact, tap-friendly) */}
-            {isMobile && (
-              <div className="space-y-3">
-                {kiosks.map((kiosk) => (
-                  <div
-                    key={kiosk.id}
-                    className="bg-gray-50 border border-gray-200 rounded-lg p-3 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="truncate">
-                            <div className="text-sm font-semibold text-[#32487E]">
-                              {kiosk.name || kiosk.id}
-                            </div>
-                            <div className="text-xs text-gray-500 truncate">{kiosk.serialNumber || "-"}</div>
-                          </div>
-
-                          <div className="text-right">
-                            <div className="text-xs text-gray-400">ID</div>
-                            <div className="text-sm font-medium text-gray-700">{kiosk.id}</div>
-                          </div>
-                        </div>
-
-                        <div className="mt-2 flex items-center gap-2">
-                          <div className="text-xs text-gray-400">Assigned:</div>
-                          {editMode === kiosk.id ? (
-                            <select
-                              className="border border-gray-300 rounded-lg px-3 text-gray-500 py-1 text-sm focus:ring-2 focus:ring-[#415CA0] focus:outline-none"
-                              disabled={loadingAssign}
-                              onChange={(e) => handleAssignRoom(kiosk.id, e.target.value)}
-                              defaultValue={kiosk.assignedRoomId || ""}
-                            >
-                              <option value="" disabled>
-                                Select Room
-                              </option>
-                              {rooms.map((roomName, index) => (
-                                <option key={index} value={roomName}>
-                                  {roomName}
-                                </option>
-                              ))}
-                            </select>
-                          ) : kiosk.assignedRoomId ? (
-                            <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold">
-                              {kiosk.assignedRoomId}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400 italic text-xs">Unassigned</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-end gap-2">
-                      {editMode === kiosk.id ? (
-                        <button
-                          onClick={() => setEditMode(null)}
-                          className="flex-1 px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm"
-                        >
-                          Cancel
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setEditMode(kiosk.id)}
-                          className="flex-1 px-3 py-2 bg-[#415CA0] hover:bg-[#32487E] text-white rounded-md text-sm"
-                        >
-                          Edit
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+        {/* KEYS TAB */}
+        {activeTab === "keys" && (
+          <>
+            {keys.length === 0 ? (
+              <p className="text-gray-500 text-center py-10">No keys generated yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm text-gray-700 border border-gray-200 rounded-lg">
+                  <thead className="bg-[#415CA0] text-white text-left">
+                    <tr>
+                      <th className="px-5 py-3 font-semibold">Key</th>
+                      <th className="px-5 py-3 font-semibold">Kiosk ID</th>
+                      <th className="px-5 py-3 font-semibold">Used</th>
+                      <th className="px-5 py-3 font-semibold">Used At</th>
+                      <th className="px-5 py-3 font-semibold">Expiration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {keys.map((k) => (
+                      <tr key={k.key} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
+                        <td className="px-5 py-3 font-mono text-blue-600">{k.key}</td>
+                        <td className="px-5 py-3">{k.kioskId || "-"}</td>
+                        <td className="px-5 py-3">{k.used ? "Yes" : "No"}</td>
+                        <td className="px-5 py-3">{k.usedAt ? new Date(k.usedAt.seconds * 1000).toLocaleString() : "-"}</td>
+                        <td className="px-5 py-3">{k.expiration ? new Date(k.expiration.seconds * 1000).toLocaleTimeString() : "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </>
