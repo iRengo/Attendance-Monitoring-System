@@ -145,7 +145,7 @@ export default function AdminLayout({ title, children }) {
       {/* MOBILE BACKDROP shown when mobile sidebar is open */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          className="fixed inset-0 bg-black/40 z-50 md:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -211,85 +211,90 @@ export default function AdminLayout({ title, children }) {
       {/* MAIN CONTENT */}
       <div className={mainWrapperClass}>
         {/* HEADER */}
+<div
+  className={`fixed top-0 h-12 md:h-16 bg-white shadow flex justify-between items-center px-4 md:px-6 z-40 transition-all duration-300 ${headerLeftClass}`}
+>
+  {/* Left section */}
+  <div className="flex items-center gap-3">
+    {/* Mobile burger in header */}
+    <button
+      className="p-1 rounded-md hover:bg-gray-100 transition md:hidden"
+      onClick={() => setMobileOpen((s) => !s)}
+      aria-label="Toggle menu"
+    >
+      <Menu size={18} className="text-[#415CA0]" />
+    </button>
+
+    <h2 className="text-base md:text-lg font-bold text-[#415CA0]">{title}</h2>
+  </div>
+
+  {/* Right section */}
+  <div className="flex items-center gap-4 md:gap-6 relative flex-none">
+    {/* 🔔 NOTIFICATIONS */}
+    <div className="relative flex-none">
+      <button
+        className="p-1 md:p-2 rounded-full hover:bg-gray-100 transition"
+        onClick={() => setNotifOpen((prev) => !prev)}
+      >
+        <Bell size={20} className="text-[#415CA0]" />
+      </button>
+
+      {/* Badge for unread notifications */}
+      {unreadCount > 0 && (
+        <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full px-1">
+          {unreadCount}
+        </span>
+      )}
+    </div>
+
+    {/* ADMIN PROFILE */}
+    <div className="relative flex-none">
+      <div
+        className="flex items-center gap-3 md:gap-4 cursor-pointer bg-white px-2 md:px-3 py-1 border hover:bg-[#F0F4FF] transition"
+        onClick={() => setMenuOpen((o) => !o)}
+      >
+        {adminData?.profilePicUrl ? (
+          <img
+            src={adminData.profilePicUrl}
+            alt="Admin Profile"
+            className="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover border border-[#415CA0]"
+          />
+        ) : (
+          <div className="h-8 w-8 md:h-10 md:w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold rounded-full">
+            {adminData?.firstname
+              ? adminData.firstname.charAt(0).toUpperCase()
+              : "A"}
+          </div>
+        )}
+
+        <div className="flex flex-col leading-tight">
+          <span className="font-medium text-[#32487E] text-sm md:text-base">
+            {adminData
+              ? `${adminData.firstname} ${adminData.lastname}`
+              : "Loading..."}
+          </span>
+          <span className="text-xs text-gray-500">Sysadmin</span>
+        </div>
+
+        <ChevronDown size={14} className="text-[#415CA0]" />
+      </div>
+
+      {menuOpen && (
         <div
-          className={`fixed top-0 h-12 md:h-16 bg-white shadow flex justify-between items-center px-4 md:px-6 z-40 transition-all duration-300 ${headerLeftClass}`}
+          className="absolute right-0 mt-2 w-54 bg-white border border-gray-300 shadow-lg z-50"
+          style={{ top: "100%" }}
         >
-          <div className="flex items-center gap-3">
-            {/* Mobile burger in header */}
-            <button
-              className="p-1 rounded-md hover:bg-gray-100 transition md:hidden"
-              onClick={() => setMobileOpen((s) => !s)}
-              aria-label="Toggle menu"
-            >
-              <Menu size={18} className="text-[#415CA0]" />
-            </button>
-
-            <h2 className="text-base md:text-lg font-bold text-[#415CA0]">{title}</h2>
-          </div>
-
-          <div className="flex items-center gap-4 md:gap-6 relative">
-            {/* 🔔 NOTIFICATIONS */}
-            <div className="relative">
-              <button
-                className="p-1 md:p-2 rounded-full hover:bg-gray-100 transition"
-                onClick={() => setNotifOpen((prev) => !prev)}
-              >
-                <Bell size={20} className="text-[#415CA0]" />
-              </button>
-
-              {/* Badge for unread notifications */}
-              {unreadCount > 0 && (
-                <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full px-1">
-                  {unreadCount}
-                </span>
-              )}
-            </div>
-
-            {/* ADMIN PROFILE */}
-            <div className="relative">
-              <div
-                className="flex items-center gap-3 md:gap-4 cursor-pointer bg-white px-2 md:px-3 py-1 border hover:bg-[#F0F4FF] transition"
-                onClick={() => setMenuOpen((o) => !o)}
-              >
-                {adminData?.profilePicUrl ? (
-                  <img
-                    src={adminData.profilePicUrl}
-                    alt="Admin Profile"
-                    className="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover border border-[#415CA0]"
-                  />
-                ) : (
-                  <div className="h-8 w-8 md:h-10 md:w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold rounded-full">
-                    {adminData?.firstname
-                      ? adminData.firstname.charAt(0).toUpperCase()
-                      : "A"}
-                  </div>
-                )}
-
-                <div className="flex flex-col leading-tight">
-                  <span className="font-medium text-[#32487E] text-sm md:text-base">
-                    {adminData
-                      ? `${adminData.firstname} ${adminData.lastname}`
-                      : "Loading..."}
-                  </span>
-                  <span className="text-xs text-gray-500">Sysadmin</span>
-                </div>
-
-                <ChevronDown size={14} className="text-[#415CA0]" />
-              </div>
-
-              {menuOpen && (
-                <div className="absolute right-0 mt-2 w-54 bg-white border border-gray-300 shadow-lg z-50">
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors"
-                  >
-                    <LogOut size={18} />
-                    <span>Logout</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors"
+          >
+            <LogOut size={18} />
+            <span>Logout</span>
+          </button>
+        </div>
+      )}
+    </div>
+  </div>
 
           {/* NOTIFICATIONS DROPDOWN (fixed so it won't get clipped by parent containers) */}
           {notifOpen && (

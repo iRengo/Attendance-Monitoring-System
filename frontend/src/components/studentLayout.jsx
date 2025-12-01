@@ -36,6 +36,9 @@ export default function StudentLayout({ title, children }) {
   const [studentId, setStudentId] = useState(null);
   const [studentData, setStudentData] = useState(null);
 
+  // Mobile sidebar open state
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   const navItems = [
     { name: "Dashboard", path: "/student/dashboard", icon: <Home size={20} /> },
     { name: "Attendance", path: "/student/attendance", icon: <CalendarCheck size={20} /> },
@@ -137,13 +140,6 @@ export default function StudentLayout({ title, children }) {
   }, [studentData?.readNotifications]);
 
   // Class posts per enrolled classes: subscribe to posts collections for classes listed in student doc.
-  // Subscribes to both possible locations:
-  //  - classes/{classId}/posts
-  //  - teachers/{teacherId}/classes/{classId}/posts (legacy)
-  //
-  // Note: this handler now explicitly reads the student's readNotifications from the server
-  // inside the subscription callback so the "read" flag for posts is applied correctly even
-  // if the local studentData in closure is stale.
   useEffect(() => {
     if (!studentId) return;
     const unsubStudent = onSnapshot(doc(db, "students", studentId), (snap) => {
@@ -318,16 +314,35 @@ export default function StudentLayout({ title, children }) {
     [studentData]
   );
 
+  // Sidebar class handling:
+  // - On md+ screens keep existing desktop widths (md:w-26 / md:w-74 based on isCollapsed)
+  // - On small screens the sidebar is hidden by default and when mobileOpen is true we show an overlay (w-64)
+  const sidebarClass = `${mobileOpen ? "w-64 flex" : "w-0 hidden"} md:flex fixed left-0 top-0 h-screen bg-[#415CA0] flex-col text-white transition-all duration-300 z-50 ${isCollapsed ? "md:w-26" : "md:w-74"}`;
+
+  // Main content margin: 0 on mobile, and md:ml-26 or md:ml-74 on desktop depending on collapsed state
+  const mainWrapperClass = `flex-1 flex flex-col transition-all duration-300 ml-0 ${isCollapsed ? "md:ml-26" : "md:ml-74"}`;
+
+  // Header left offset on desktop keeps previous behavior; on mobile it stays left-0
+  const headerLeftClass = `${isCollapsed ? "md:left-[6.5rem]" : "md:left-[18.5rem]"} left-0 right-0`;
+
   return (
     <div className="flex h-screen w-screen">
-      {/* Sidebar */}
-      <div className={`fixed left-0 top-0 h-screen ${isCollapsed ? "w-26" : "w-74"} bg-[#415CA0] flex flex-col text-white transition-all duration-300 z-50`}>
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-white/20">
-        <img
-          src="/aics_logo.png"
-          alt="AICS Logo"
-          className="h-15 w-auto object-contain"
+      {/* MOBILE BACKDROP shown when mobile sidebar is open */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 md:hidden"
+          onClick={() => setMobileOpen(false)}
         />
+      )}
+
+      {/* Sidebar */}
+      <div className={sidebarClass}>
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-white/20">
+          <img
+            src="/aics_logo.png"
+            alt="AICS Logo"
+            className="h-15 w-auto object-contain"
+          />
           {!isCollapsed && (
             <div className="font-bold leading-tight text-md">
               <p>Asian Institute of</p>
@@ -336,7 +351,17 @@ export default function StudentLayout({ title, children }) {
           )}
         </div>
 
-        <div className="px-2 py-3 text-xs uppercase tracking-wide text-gray-200 cursor-pointer" onClick={() => setIsCollapsed((c) => !c)}>
+        <div
+          className="px-2 py-3 text-xs uppercase tracking-wide text-gray-200 cursor-pointer"
+          onClick={() => {
+            // On mobile, toggle the off-canvas; on desktop toggle collapse
+            if (window.innerWidth < 768) {
+              setMobileOpen((s) => !s);
+            } else {
+              setIsCollapsed((c) => !c);
+            }
+          }}
+        >
           <div className="flex items-center gap-2 px-6 py-6">
             <Menu size={16} />
             {!isCollapsed && <span>Menu</span>}
@@ -345,7 +370,15 @@ export default function StudentLayout({ title, children }) {
 
         <nav className="flex-1 px-2 space-y-2 overflow-y-auto">
           {navItems.map((item) => (
-            <Link key={item.name} to={item.path} className={`flex items-center gap-3 pl-6 px-4 py-2 rounded-lg transition ${location.pathname === item.path ? "bg-[#32487E] text-white" : "text-white hover:bg-[#32487E] hover:text-white"}`}>
+            <Link
+              key={item.name}
+              to={item.path}
+              onClick={() => {
+                // Close mobile sidebar when navigating on mobile
+                if (window.innerWidth < 768) setMobileOpen(false);
+              }}
+              className={`flex items-center gap-3 pl-6 px-4 py-2 rounded-lg transition ${location.pathname === item.path ? "bg-[#32487E] text-white" : "text-white hover:bg-[#32487E] hover:text-white"}`}
+            >
               <span className="text-white">{item.icon}</span>
               {!isCollapsed && <span className="text-white text-lg">{item.name}</span>}
             </Link>
@@ -354,101 +387,131 @@ export default function StudentLayout({ title, children }) {
       </div>
 
       {/* Main Content Wrapper */}
-      <div className={`flex-1 flex flex-col transition-all duration-300 ${isCollapsed ? "ml-26" : "ml-74"}`}>
+      <div className={mainWrapperClass}>
         {/* Top Bar */}
-        <div className="fixed top-0 h-16 bg-white shadow flex justify-between items-center px-6 z-40 transition-all duration-300" style={{ left: isCollapsed ? "6.5rem" : "18.5rem", right: 0 }}>
-          <h2 className="text-lg font-bold text-[#415CA0] truncate">{title}</h2>
+        <div className={`fixed top-0 h-12 md:h-16 bg-white shadow flex justify-between items-center px-4 md:px-6 z-40 transition-all duration-300 ${headerLeftClass}`}>
+  
+  {/* Left section */}
+  <div className="flex items-center gap-3">
+    {/* Mobile burger */}
+    <button
+      className="p-1 rounded-md hover:bg-gray-100 transition md:hidden"
+      onClick={() => setMobileOpen((s) => !s)}
+      aria-label="Toggle menu"
+    >
+      <Menu size={18} className="text-[#415CA0]" />
+    </button>
 
-          <div className="flex items-center gap-6">
-            {/* Notifications */}
-            <div className="relative">
-              <button className="p-2 rounded-full hover:bg-gray-100 transition relative" onClick={handleToggleNotifications}>
-                <Bell size={22} className="text-[#415CA0]" />
-                {unreadCount > 0 && <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full px-1">{unreadCount}</span>}
-              </button>
+    <h2 className="text-base md:text-lg font-bold text-[#415CA0] truncate">{title}</h2>
+  </div>
 
-              {showNotifications && (
-                <div className="absolute right-0 mt-3 w-96 bg-white border border-gray-200 rounded-xl shadow-lg z-50 animate-fadeIn">
-                  <div className="flex justify-between items-center px-4 py-3 border-b border-gray-100">
-                    <h3 className="font-semibold text-[#415CA0] flex items-center gap-2">
-                      <Bell size={18} /> Notifications
-                    </h3>
-                    <button onClick={() => setShowNotifications(false)} className="text-gray-500 hover:text-gray-700">
-                      <X size={16} />
-                    </button>
-                  </div>
+  {/* Right section */}
+  <div className="flex items-center gap-4 md:gap-6 relative flex-none">
+    {/* Profile menu container */}
+    <div className="relative flex-none">
+      <div
+        className="flex items-center gap-3 md:gap-4 cursor-pointer bg-white px-1 md:px-3 py-1 border hover:bg-[#F0F4FF] transition"
+        onClick={() => setMenuOpen((o) => !o)}
+      >
+        {profilePicUrl ? (
+          <img
+            src={profilePicUrl}
+            alt="Profile"
+            className="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover"
+          />
+        ) : (
+          <div className="h-8 w-8 md:h-10 md:w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold rounded-full">
+            {profileInitial}
+          </div>
+        )}
 
-                  <div className="max-h-96 overflow-y-auto">
-                    <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-[#415CA0] flex items-center gap-2">
-                      <Megaphone size={16} /> Announcements
-                    </div>
-
-                    {notifications.filter((n) => n.type === "announcement").length === 0 ? (
-                      <p className="text-gray-500 text-sm text-center py-3">No announcements yet.</p>
-                    ) : (
-                      notifications
-                        .filter((n) => n.type === "announcement")
-                        .map((n) => (
-                          <div key={n._notifId} onClick={() => markNotificationRead(n._notifId)} className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition cursor-pointer ${!n.read ? "bg-blue-50" : "bg-white"}`}>
-                            <h4 className="font-semibold text-gray-800">{n.title}</h4>
-                            <p className="text-gray-600 text-sm line-clamp-2">{n.content}</p>
-                            <p className="text-xs text-gray-400 mt-1">{n.createdAt ? new Date(n.createdAt?.toDate?.() || n.createdAt).toLocaleString() : "No date"}</p>
-                          </div>
-                        ))
-                    )}
-
-                    <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-[#415CA0] flex items-center gap-2">
-                      <FileText size={16} /> Class Posts
-                    </div>
-
-                    {notifications.filter((n) => n.type === "post").length === 0 ? (
-                      <p className="text-gray-500 text-sm text-center py-3">No class posts yet.</p>
-                    ) : (
-                      notifications
-                        .filter((n) => n.type === "post")
-                        .map((n) => (
-                          <div key={n._notifId} onClick={() => markNotificationRead(n._notifId)} className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition cursor-pointer ${!n.read ? "bg-blue-50" : "bg-white"}`}>
-                            <h4 className="font-semibold text-gray-800">{n.title}</h4>
-                            <p className="text-gray-600 text-sm line-clamp-2">{n.content}</p>
-                            <p className="text-xs text-gray-400 mt-1">{n.createdAt ? new Date(n.createdAt?.toDate?.() || n.createdAt).toLocaleString() : "No date"}</p>
-                          </div>
-                        ))
-                    )}
-                  </div>
-                </div>
-              )}
+        {!isCollapsed && (
+          <>
+            <div className="flex flex-col leading-tight">
+              <span className="font-medium text-[#32487E] text-sm md:text-base">{fullName}</span>
+              <span className="text-xs text-gray-500">Student</span>
             </div>
+            <ChevronDown size={16} className="text-[#415CA0]" />
+          </>
+        )}
+      </div>
 
-            {/* Profile Menu */}
-            <div className="relative">
-              <div className="flex items-center gap-4 cursor-pointer bg-white px-3 py-1 border hover:bg-[#F0F4FF] transition" onClick={() => setMenuOpen((o) => !o)}>
-                {profilePicUrl ? <img src={profilePicUrl} alt="Profile" className="h-10 w-10 rounded-full object-cover" /> : <div className="h-10 w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold rounded-full">{profileInitial}</div>}
+      {menuOpen && (
+        <div
+          className="absolute right-0 w-54 bg-white border border-gray-300 shadow-lg z-50"
+          style={{ top: "100%" }}
+        >
+          <button
+            onClick={handleLogout}
+            className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors"
+          >
+            <LogOut size={18} />
+            <span>Logout</span>
+          </button>
+        </div>
+      )}
+    </div>
+  
 
-                {!isCollapsed && (
-                  <>
-                    <div className="flex flex-col leading-tight">
-                      <span className="font-medium text-[#32487E]">{fullName}</span>
-                      <span className="text-xs text-gray-500">Student</span>
-                    </div>
-                    <ChevronDown size={16} className="text-[#415CA0]" />
-                  </>
-                )}
-              </div>
-
-              {menuOpen && (
-                <div className="absolute right-0 mt-2 w-54 bg-white border border-gray-300 shadow-lg z-50">
-                  <button onClick={handleLogout} className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors">
-                    <LogOut size={18} />
-                    <span>Logout</span>
+            {/* NOTIFICATIONS DROPDOWN (fixed so it won't get clipped by sidebars/parents) */}
+            {showNotifications && (
+              <div
+                className="fixed top-12 md:top-16 right-4 md:right-6 lg:right-8 w-96 bg-white border border-gray-200 rounded-xl shadow-lg z-[60] max-h-96 overflow-y-auto"
+                style={{ transform: "translateY(4px)" }}
+              >
+                <div className="flex justify-between items-center px-4 py-3 border-b border-gray-100">
+                  <h3 className="font-semibold text-[#415CA0] flex items-center gap-2">
+                    <Bell size={18} /> Notifications
+                  </h3>
+                  <button onClick={() => setShowNotifications(false)} className="text-gray-500 hover:text-gray-700">
+                    <X size={16} />
                   </button>
                 </div>
-              )}
-            </div>
+
+                <div className="max-h-96 overflow-y-auto">
+                  <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-[#415CA0] flex items-center gap-2">
+                    <Megaphone size={16} /> Announcements
+                  </div>
+
+                  {notifications.filter((n) => n.type === "announcement").length === 0 ? (
+                    <p className="text-gray-500 text-sm text-center py-3">No announcements yet.</p>
+                  ) : (
+                    notifications
+                      .filter((n) => n.type === "announcement")
+                      .map((n) => (
+                        <div key={n._notifId} onClick={() => markNotificationRead(n._notifId)} className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition cursor-pointer ${!n.read ? "bg-blue-50" : "bg-white"}`}>
+                          <h4 className="font-semibold text-gray-800">{n.title}</h4>
+                          <p className="text-gray-600 text-sm line-clamp-2">{n.content}</p>
+                          <p className="text-xs text-gray-400 mt-1">{n.createdAt ? new Date(n.createdAt?.toDate?.() || n.createdAt).toLocaleString() : "No date"}</p>
+                        </div>
+                      ))
+                  )}
+
+                  <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-[#415CA0] flex items-center gap-2">
+                    <FileText size={16} /> Class Posts
+                  </div>
+
+                  {notifications.filter((n) => n.type === "post").length === 0 ? (
+                    <p className="text-gray-500 text-sm text-center py-3">No class posts yet.</p>
+                  ) : (
+                    notifications
+                      .filter((n) => n.type === "post")
+                      .map((n) => (
+                        <div key={n._notifId} onClick={() => markNotificationRead(n._notifId)} className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition cursor-pointer ${!n.read ? "bg-blue-50" : "bg-white"}`}>
+                          <h4 className="font-semibold text-gray-800">{n.title}</h4>
+                          <p className="text-gray-600 text-sm line-clamp-2">{n.content}</p>
+                          <p className="text-xs text-gray-400 mt-1">{n.createdAt ? new Date(n.createdAt?.toDate?.() || n.createdAt).toLocaleString() : "No date"}</p>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 p-6 bg-gray-50 mt-16 overflow-y-auto">
+        <div className="flex-1 p-4 md:p-6 bg-gray-50 mt-12 md:mt-16 overflow-y-auto">
           {/* Temp password banner */}
           {isTempPassword && (
             <div className="mb-4 rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">

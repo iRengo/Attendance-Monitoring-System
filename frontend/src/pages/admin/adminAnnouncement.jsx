@@ -11,7 +11,7 @@ import {
   doc,
   serverTimestamp,
 } from "firebase/firestore";
-import { logActivity } from "../../utils/logActivity"; // ✅ added
+import { logActivity } from "../../utils/logActivity";
 
 export default function AdminAnnouncement() {
   const [announcements, setAnnouncements] = useState([]);
@@ -37,7 +37,6 @@ export default function AdminAnnouncement() {
     }
   };
 
-  // Fetch announcements from Firestore
   const fetchAnnouncements = async () => {
     const snapshot = await getDocs(announcementRef);
     const data = snapshot.docs.map((doc) => ({
@@ -61,9 +60,8 @@ export default function AdminAnnouncement() {
     fetchAnnouncements();
   }, []);
 
-  const handleChange = (e) => {
+  const handleChange = (e) =>
     setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -83,7 +81,6 @@ export default function AdminAnnouncement() {
         const docRef = doc(db, "announcements", editingId);
         await updateDoc(docRef, newAnnouncement);
 
-        // ✅ Log update activity
         await logActivity(
           "Updated Announcement",
           `Updated announcement titled "${formData.title}".`
@@ -93,7 +90,6 @@ export default function AdminAnnouncement() {
       } else {
         await addDoc(announcementRef, newAnnouncement);
 
-        // ✅ Log new announcement
         await logActivity(
           "Created Announcement",
           `Posted new announcement titled "${formData.title}".`
@@ -123,7 +119,6 @@ export default function AdminAnnouncement() {
         const announcement = announcements.find((a) => a.id === id);
         await deleteDoc(doc(db, "announcements", id));
 
-        // ✅ Log delete activity
         await logActivity(
           "Deleted Announcement",
           `Deleted announcement titled "${announcement?.title || "Untitled"}".`
@@ -138,10 +133,10 @@ export default function AdminAnnouncement() {
 
   return (
     <AdminLayout title="Announcements Management">
-      <div className="p-6">
+      <div className="p-4 md:p-6 max-w-[1100px] mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white p-5 rounded-xl shadow-md mb-6 flex items-center justify-between">
-          <h2 className="text-xl font-semibold tracking-wide">
+        <div className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white p-4 md:p-5 rounded-xl shadow-md mb-6 flex items-center justify-between">
+          <h2 className="text-lg md:text-xl font-semibold tracking-wide">
             Create Announcement
           </h2>
           <CalendarDays size={24} className="opacity-80" />
@@ -150,9 +145,9 @@ export default function AdminAnnouncement() {
         {/* Form Section */}
         <form
           onSubmit={handleSubmit}
-          className="bg-white rounded-xl shadow-lg p-6 mb-10 transition hover:shadow-xl"
+          className="bg-white rounded-xl shadow-lg p-4 md:p-6 mb-10 transition hover:shadow-xl"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-5">
             <div>
               <label className="block text-sm font-semibold text-gray-700">
                 Title
@@ -213,91 +208,144 @@ export default function AdminAnnouncement() {
 
           <button
             type="submit"
-            className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white px-6 py-2 rounded-lg hover:opacity-90 transition"
+            className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white px-5 py-2 rounded-lg hover:opacity-90 transition w-full md:w-auto"
           >
             {editingId ? "Update Announcement" : "Post Announcement"}
           </button>
         </form>
 
-        {/* Announcements List */}
-        <div className="bg-white shadow-lg rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            📋 Announcements List
-          </h2>
+       {/* MOBILE + DESKTOP RESPONSIVE TABLE */}
+<div className="w-full">
+  {/* Wrapper */}
+  <div className="md:overflow-x-auto">
+    <table className="w-full border border-gray-200 rounded-lg overflow-hidden hidden md:table">
+      <thead className="bg-[rgb(52,152,219)] text-white">
+        <tr>
+          <th className="py-3 px-4 text-sm font-semibold">Title</th>
+          <th className="py-3 px-4 text-sm font-semibold">Date</th>
+          <th className="py-3 px-4 text-sm font-semibold">Target</th>
+          <th className="py-3 px-4 text-sm font-semibold">Expiration</th>
+          <th className="py-3 px-4 text-sm font-semibold">Author</th>
+          <th className="py-3 px-4 text-sm font-semibold">Status</th>
+          <th className="py-3 px-4 text-sm font-semibold text-right">Actions</th>
+        </tr>
+      </thead>
+    </table>
 
-          <table className="w-full text-left border border-gray-200 rounded-lg overflow-hidden">
-            <thead className="bg-[rgb(52,152,219)] text-white">
-              <tr>
-                <th className="py-3 px-4 text-sm font-semibold">Title</th>
-                <th className="py-3 px-4 text-sm font-semibold">Date</th>
-                <th className="py-3 px-4 text-sm font-semibold">Target</th>
-                <th className="py-3 px-4 text-sm font-semibold">Expiration</th>
-                <th className="py-3 px-4 text-sm font-semibold">Author</th>
-                <th className="py-3 px-4 text-sm font-semibold">Status</th>
-                <th className="py-3 px-4 text-sm font-semibold text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {announcements.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="text-center py-6 text-gray-500">
-                    No announcements yet.
-                  </td>
-                </tr>
-              ) : (
-                announcements.map((a) => (
-                  <tr
-                    key={a.id}
-                    className={`border-b border-gray-100 transition ${
-                      a.status === "Expired"
-                        ? "bg-gray-50 opacity-80"
-                        : "hover:bg-blue-50"
-                    }`}
-                  >
-                    <td className="py-3 px-4 text-gray-800 font-medium">
-                      {a.title}
-                    </td>
-                    <td className="py-3 px-4 text-gray-700">{a.date}</td>
-                    <td className="py-3 px-4 text-gray-700">
-                      {targetLabel(a.target)}
-                    </td>
-                    <td className="py-3 px-4 text-gray-700">
-                      {a.expiration || "-"}
-                    </td>
-                    <td className="py-3 px-4 text-gray-700">{a.author}</td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          a.status === "Active"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-600"
-                        }`}
-                      >
-                        {a.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right space-x-3">
-                      <button
-                        onClick={() => handleEdit(a)}
-                        className="text-blue-500 hover:text-blue-700 transition"
-                      >
-                        <Edit3 size={18} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(a.id)}
-                        className="text-red-500 hover:text-red-700 transition"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+    {/* MOBILE CARD LIST (no overflow, fits screen) */}
+    <div className="space-y-4 md:hidden">
+      {announcements.map((a) => (
+        <div
+          key={a.id}
+          className={`border rounded-xl p-4 shadow-sm ${
+            a.status === "Expired" ? "bg-gray-50 opacity-80" : "bg-white"
+          }`}
+        >
+          <div className="mb-2">
+            <p className="text-xs font-semibold text-gray-500">Title</p>
+            <p className="text-gray-800 font-medium">{a.title}</p>
+          </div>
+
+          <div className="mb-2">
+            <p className="text-xs font-semibold text-gray-500">Date</p>
+            <p className="text-gray-800">{a.date}</p>
+          </div>
+
+          <div className="mb-2">
+            <p className="text-xs font-semibold text-gray-500">Target</p>
+            <p className="text-gray-800">{targetLabel(a.target)}</p>
+          </div>
+
+          <div className="mb-2">
+            <p className="text-xs font-semibold text-gray-500">Expiration</p>
+            <p className="text-gray-800">{a.expiration || "-"}</p>
+          </div>
+
+          <div className="mb-2">
+            <p className="text-xs font-semibold text-gray-500">Author</p>
+            <p className="text-gray-800">{a.author}</p>
+          </div>
+
+          <div className="mb-3">
+            <p className="text-xs font-semibold text-gray-500">Status</p>
+            <span
+              className={`px-3 py-1 mt-1 inline-block rounded-full text-xs font-semibold ${
+                a.status === "Active"
+                  ? "bg-green-100 text-green-700"
+                  : "bg-red-100 text-red-600"
+              }`}
+            >
+              {a.status}
+            </span>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-4 border-t pt-3">
+            <button
+              onClick={() => handleEdit(a)}
+              className="text-blue-500 hover:text-blue-700"
+            >
+              <Edit3 size={18} />
+            </button>
+
+            <button
+              onClick={() => handleDelete(a.id)}
+              className="text-red-500 hover:text-red-700"
+            >
+              <Trash2 size={18} />
+            </button>
+          </div>
         </div>
+      ))}
+    </div>
+
+    {/* DESKTOP TABLE BODY */}
+    <table className="w-full text-left border border-gray-200 rounded-lg overflow-hidden hidden md:table">
+      <tbody>
+        {announcements.map((a) => (
+          <tr
+            key={a.id}
+            className={`border-b ${
+              a.status === "Expired" ? "bg-gray-50" : "hover:bg-blue-50"
+            }`}
+          >
+            <td className="py-3 px-4 font-medium text-gray-800">{a.title}</td>
+            <td className="py-3 px-4">{a.date}</td>
+            <td className="py-3 px-4">{targetLabel(a.target)}</td>
+            <td className="py-3 px-4">{a.expiration || "-"}</td>
+            <td className="py-3 px-4">{a.author}</td>
+            <td className="py-3 px-4">
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                  a.status === "Active"
+                    ? "bg-green-100 text-green-700"
+                    : "bg-red-100 text-red-600"
+                }`}
+              >
+                {a.status}
+              </span>
+            </td>
+            <td className="py-3 px-4 text-right space-x-3">
+              <button
+                onClick={() => handleEdit(a)}
+                className="text-blue-500 hover:text-blue-700"
+              >
+                <Edit3 size={18} />
+              </button>
+              <button
+                onClick={() => handleDelete(a.id)}
+                className="text-red-500 hover:text-red-700"
+              >
+                <Trash2 size={18} />
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
+
       </div>
     </AdminLayout>
   );
