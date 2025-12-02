@@ -254,7 +254,7 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* Mobile swipe handle below header (visual only) */}
+            {/* Mobile swipe handle below header (visual only) */}
               <div className="md:hidden w-full">
                 <div className="w-full px-6 -mt-2">
                   <div className="h-12 flex items-center justify-center relative">
@@ -262,27 +262,24 @@ export default function Login() {
                       Announcements
                     </div>
 
-                    {/* Animated swipe indicator (chevrons) to show swipeability */}
+                    {/* Animated swipe indicator (chevrons) pointing down */}
                     <motion.div
-                      className="absolute -bottom-3 flex flex-col items-center gap-1 pointer-events-none"
+                      className="absolute -bottom-0 flex flex-col items-center gap-0 pointer-events-none"
                       aria-hidden
-                      animate={{ y: [0, -6, 0] }}
+                      animate={{ y: [0, 6, 0] }}
                       transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
                     >
                       <svg className="w-4 h-4 text-white/90" viewBox="0 0 24 24" fill="none">
-                        <path d="M6 15l6-6 6 6" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M6 9l6 6 6-6" stroke="black" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
-                      <svg className="w-4 h-4 text-white/60 opacity-80" viewBox="0 0 24 24" fill="none">
-                        <path d="M6 15l6-6 6 6" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
+
                     </motion.div>
                   </div>
                 </div>
               </div>
 
-
               {/* LOGIN FORM centered */}
-              <div className="flex-1 flex items-start justify-center py-6 md:py-45">
+              <div className="flex-1 flex items-start justify-center py-10 md:py-40">
                 <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-sm shadow-lg mx-6">
                   <h2 className="text-xl font-bold text-center mb-1 text-[#5F75AF]">
                     Attendance Monitoring Portal

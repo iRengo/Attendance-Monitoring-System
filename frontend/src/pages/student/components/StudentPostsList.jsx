@@ -1,7 +1,7 @@
 import React from "react";
 import FileAttachmentCard from "../../teacher/components/FileAttachmentCard";
 
-export default function StudentPostsList({ posts, setPreview }) {
+export default function StudentPostsList({ posts = [], setPreview }) {
   const isImage = (nameOrUrl = "") =>
     /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i.test(String(nameOrUrl));
   const isOffice = (nameOrUrl = "") =>
@@ -53,30 +53,32 @@ export default function StudentPostsList({ posts, setPreview }) {
         const all = attachments.length ? attachments : [...legacyImage, ...legacyFile];
 
         return (
-          <div
+          <article
             key={post.id}
-            className="bg-white border border-gray-200 rounded-xl shadow-sm p-5"
+            className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 sm:p-5 w-full max-w-full overflow-hidden"
           >
-            <p className="text-gray-800 mb-2 whitespace-pre-wrap">{post.content}</p>
+            <p className="text-gray-800 mb-3 whitespace-pre-wrap break-words">{post.content}</p>
 
             {all.length > 0 && (
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 space-y-3">
                 {all.map((att, i) =>
                   att.kind === "image" || isImage(att.name || att.url) ? (
                     <div
                       key={i}
-                      className="cursor-pointer"
+                      className="cursor-pointer w-full max-w-full"
                       onClick={() => setPreview(att.url)}
                     >
-                      <img
-                        src={att.previewThumbUrl || att.url}
-                        alt={att.name || "image"}
-                        className="rounded-lg max-h-64 object-cover border"
-                        title={att.name}
-                      />
+                      <div className="w-full overflow-hidden rounded-lg border">
+                        <img
+                          src={att.previewThumbUrl || att.url}
+                          alt={att.name || "image"}
+                          className="w-full h-auto max-w-full object-cover block"
+                          title={att.name}
+                        />
+                      </div>
                       {att.name && (
                         <div
-                          className="text-xs text-gray-600 mt-1 truncate"
+                          className="text-xs text-gray-600 mt-1 truncate max-w-full"
                           title={att.name}
                         >
                           {att.name}
@@ -84,23 +86,25 @@ export default function StudentPostsList({ posts, setPreview }) {
                       )}
                     </div>
                   ) : (
-                    <FileAttachmentCard
-                      key={i}
-                      fileUrl={att.url}
-                      fileName={att.name}
-                      fileType={att.type}
-                      previewThumbUrl={att.previewThumbUrl}
-                      onPreview={() => setPreview(previewUrlForAttachment(att))}
-                    />
+                    <div key={i} className="w-full">
+                      <FileAttachmentCard
+                        fileUrl={att.url}
+                        fileName={att.name}
+                        fileType={att.type}
+                        previewThumbUrl={att.previewThumbUrl}
+                        onPreview={() => setPreview(previewUrlForAttachment(att))}
+                        // Ensure FileAttachmentCard stays responsive (if it supports className prop)
+                      />
+                    </div>
                   )
                 )}
               </div>
             )}
 
-            <p className="text-xs text-gray-400 mt-3">
+            <p className="text-xs text-gray-400 mt-3 truncate">
               {post.timestamp ? new Date(post.timestamp).toLocaleString() : ""}
             </p>
-          </div>
+          </article>
         );
       })}
     </>

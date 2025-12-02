@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import AdminLayout from "../../components/adminLayout";
-import { db, auth } from "../../firebase";
-import { collection, getDocs, onSnapshot, writeBatch, doc, addDoc } from "firebase/firestore";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { db } from "../../firebase";
+import { collection, getDocs, onSnapshot } from "firebase/firestore";
 
 // Components
 import Card from "./components/adminDashboard/Card";
@@ -82,14 +81,12 @@ export default function AdminDashboard() {
           todayDocs.forEach((docSnap) => {
             const data = docSnap.data() || {};
   
-            // Prefer explicit present/absent arrays if they exist
             const presentArr = pickArrayField(data, ["studentsPresent", "present", "presentIds"]) || [];
             const absentArr = pickArrayField(data, ["studentsAbsent", "absent", "absentIds"]) || [];
   
             presentArr.forEach((id) => presentSet.add(id));
             absentArr.forEach((id) => absentSet.add(id));
   
-            // Only use entries if explicit arrays don't exist
             if (!presentArr.length && !absentArr.length && Array.isArray(data.entries)) {
               data.entries.forEach((e) => {
                 const st = (e?.status || "unknown").toLowerCase();
@@ -99,7 +96,6 @@ export default function AdminDashboard() {
             }
           });
   
-          // Remove duplicates: if a student appears in both, consider them present
           absentSet.forEach((id) => {
             if (presentSet.has(id)) absentSet.delete(id);
           });
@@ -147,25 +143,44 @@ export default function AdminDashboard() {
     return () => unsubscribe();
   }, []);
 
-      return (
-        <AdminLayout title="Dashboard">
-          <div className="p-6 space-y-8">
+  return (
+    <AdminLayout title="Dashboard">
+      {/*
+        Mobile-only left gutter usage while preserving desktop exactly:
+        - -ml-4 applies on mobile (<640px) to reclaim layout gutter
+        - sm:ml-0 resets margin on >=640px so desktop matches your original file
+        - inner padding smaller on mobile (px-4 py-4) and becomes p-6 on sm+ to match desktop spacing
+      */}
+      <div className="-ml-4 sm:ml-0">
+        <div className="px-4 py-4 sm:p-6 space-y-6 sm:space-y-8 w-full">
+          {/* Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 min-h-0">
+            <div className="min-w-0 w-full">
+              <Card title="Total Students" value={totalStudents} iconName="users" />
+            </div>
+            <div className="min-w-0 w-full">
+              <Card title="Total Teachers" value={totalTeachers} iconName="book" />
+            </div>
+            <div className="min-w-0 w-full">
+              <Card title="Attendance % Today" value={`${attendancePercent}%`} iconName="chart" />
+            </div>
+          </div>
 
-        {/* Metrics */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Card title="Total Students" value={totalStudents} iconName="users" />
-          <Card title="Total Teachers" value={totalTeachers} iconName="book" />
-          <Card title="Attendance % Today" value={`${attendancePercent}%`} iconName="chart" />
+          {/* Graphs Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-start min-h-0">
+            <div className="lg:col-span-2 min-w-0 w-full overflow-hidden">
+              <AttendanceTrendsChart data={attendanceTrends} className="w-full" />
+            </div>
+            <div className="lg:col-span-1 min-w-0 w-full">
+              <PresencePie presenceData={presenceData} attendancePercent={attendancePercent} className="w-full h-56" />
+            </div>
+          </div>
+
+          {/* Recent Activities */}
+          <div className="w-full min-w-0 overflow-hidden break-words">
+            <RecentActivities activities={activities} />
+          </div>
         </div>
-
-        {/* Graphs Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <AttendanceTrendsChart data={attendanceTrends} className="lg:col-span-2" />
-          <PresencePie presenceData={presenceData} attendancePercent={attendancePercent} />
-        </div>
-
-        {/* Recent Activities */}
-        <RecentActivities activities={activities} />
       </div>
     </AdminLayout>
   );

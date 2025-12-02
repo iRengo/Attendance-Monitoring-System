@@ -13,10 +13,10 @@ export default function FiltersBar({
   setPage,
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
-        <div className="flex flex-wrap text-gray-600 gap-3">
-          <div className="flex items-center gap-2">
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-3">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             <label className="text-xs text-gray-600">Status</label>
             <select
               value={statusFilter}
@@ -24,7 +24,7 @@ export default function FiltersBar({
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              className="border border-gray-300 px-3 py-1.5 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
+              className="border border-gray-300 px-2 py-1 rounded-lg text-sm text-gray-600 focus:ring-2 focus:ring-indigo-200 outline-none min-w-0"
             >
               <option value="">All</option>
               <option value="present">Present</option>
@@ -33,7 +33,7 @@ export default function FiltersBar({
             </select>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <label className="text-xs text-gray-600">Subject</label>
             <select
               value={subjectFilter}
@@ -41,7 +41,7 @@ export default function FiltersBar({
                 setSubjectFilter(e.target.value);
                 setPage(1);
               }}
-              className="border border-gray-300 px-3 py-1.5 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none min-w-[160px]"
+              className="border border-gray-300 px-2 py-1 rounded-lg text-sm text-gray-600 focus:ring-2 focus:ring-indigo-200 outline-none min-w-0 w-40 sm:w-auto"
             >
               <option value="">All</option>
               {subjectOptions.map((subj) => (
@@ -54,7 +54,7 @@ export default function FiltersBar({
 
           <button
             onClick={resetFilters}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm text-[#415CA0] border-[#415CA0]/30 hover:bg-[#415CA0]/5 transition"
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-sm text-[#415CA0] border-[#415CA0]/30 hover:bg-[#415CA0]/5 transition"
             title="Reset filters"
           >
             <Filter size={14} /> Clear
@@ -65,17 +65,19 @@ export default function FiltersBar({
           <button
             onClick={exportPDF}
             disabled={exporting}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition disabled:opacity-40"
+            className="inline-flex items-center gap-2 px-2 py-1 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition disabled:opacity-40 text-sm"
           >
             <FileDown size={16} />
-            PDF
+            <span className="hidden sm:inline">PDF</span>
+            <span className="sm:hidden">PDF</span>
           </button>
           <button
             onClick={exportCSV}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#415CA0] text-white hover:bg-[#344c89] transition"
+            className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-[#415CA0] text-white hover:bg-[#344c89] transition text-sm"
           >
             <FileDown size={16} />
-            CSV
+            <span className="hidden sm:inline">CSV</span>
+            <span className="sm:hidden">CSV</span>
           </button>
         </div>
       </div>

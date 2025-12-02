@@ -11,7 +11,7 @@ import {
   doc,
   serverTimestamp,
 } from "firebase/firestore";
-import { logActivity } from "../../utils/logActivity";
+import { logActivity } from "../../utils/logActivity"; // ✅ added
 
 export default function AdminAnnouncement() {
   const [announcements, setAnnouncements] = useState([]);
@@ -22,6 +22,9 @@ export default function AdminAnnouncement() {
     expiration: "",
   });
   const [editingId, setEditingId] = useState(null);
+
+  // state for mobile "show more" toggles
+  const [expandedId, setExpandedId] = useState(null);
 
   const announcementRef = collection(db, "announcements");
 
@@ -37,6 +40,7 @@ export default function AdminAnnouncement() {
     }
   };
 
+  // Fetch announcements from Firestore
   const fetchAnnouncements = async () => {
     const snapshot = await getDocs(announcementRef);
     const data = snapshot.docs.map((doc) => ({
@@ -60,8 +64,9 @@ export default function AdminAnnouncement() {
     fetchAnnouncements();
   }, []);
 
-  const handleChange = (e) =>
+  const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -81,6 +86,7 @@ export default function AdminAnnouncement() {
         const docRef = doc(db, "announcements", editingId);
         await updateDoc(docRef, newAnnouncement);
 
+        // ✅ Log update activity
         await logActivity(
           "Updated Announcement",
           `Updated announcement titled "${formData.title}".`
@@ -90,6 +96,7 @@ export default function AdminAnnouncement() {
       } else {
         await addDoc(announcementRef, newAnnouncement);
 
+        // ✅ Log new announcement
         await logActivity(
           "Created Announcement",
           `Posted new announcement titled "${formData.title}".`
@@ -119,6 +126,7 @@ export default function AdminAnnouncement() {
         const announcement = announcements.find((a) => a.id === id);
         await deleteDoc(doc(db, "announcements", id));
 
+        // ✅ Log delete activity
         await logActivity(
           "Deleted Announcement",
           `Deleted announcement titled "${announcement?.title || "Untitled"}".`
@@ -131,221 +139,242 @@ export default function AdminAnnouncement() {
     }
   };
 
+  const truncate = (text, len = 140) =>
+    text && text.length > len ? text.slice(0, len) + "…" : text;
+
   return (
     <AdminLayout title="Announcements Management">
-      <div className="p-4 md:p-6 max-w-[1100px] mx-auto">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white p-4 md:p-5 rounded-xl shadow-md mb-6 flex items-center justify-between">
-          <h2 className="text-lg md:text-xl font-semibold tracking-wide">
-            Create Announcement
-          </h2>
-          <CalendarDays size={24} className="opacity-80" />
-        </div>
+      {/*
+        Mobile/desktop behavior:
+        - On small screens use the "mobile" dimension (p-4, md:p-6, max-w centered) as requested.
+        - On md+ screens the layout remains the desktop version exactly (full width, p-6, desktop table).
+        Implementation:
+        - Use responsive utility classes so mobile gets the mobile container sizing and desktop uses full-width p-6.
+      */}
+      <div className="p-4 md:p-10">
+        <div className="max-w-[2000px] mx-auto md:mx-0">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white p-4 md:p-5 rounded-xl shadow-md mb-6 flex items-center justify-between">
+            <h2 className="text-lg md:text-xl font-semibold tracking-wide">
+              Create Announcement
+            </h2>
+            <CalendarDays size={24} className="opacity-80" />
+          </div>
 
-        {/* Form Section */}
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white rounded-xl shadow-lg p-4 md:p-6 mb-10 transition hover:shadow-xl"
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-5">
-            <div>
+          {/* Form Section */}
+          <form
+            onSubmit={handleSubmit}
+            className="bg-white rounded-xl shadow-lg p-4 md:p-6 mb-10 transition hover:shadow-xl"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  name="title"
+                  value={formData.title}
+                  onChange={handleChange}
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+                  placeholder="Enter announcement title..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700">
+                  Target Audience
+                </label>
+                <select
+                  name="target"
+                  value={formData.target}
+                  onChange={handleChange}
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+                >
+                  <option value="all">All Users</option>
+                  <option value="students">Students Only</option>
+                  <option value="teachers">Teachers Only</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mb-5">
               <label className="block text-sm font-semibold text-gray-700">
-                Title
+                Content
+              </label>
+              <textarea
+                name="content"
+                value={formData.content}
+                onChange={handleChange}
+                rows="4"
+                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+                placeholder="Write your announcement content..."
+              ></textarea>
+            </div>
+
+            <div className="mb-5">
+              <label className="block text-sm font-semibold text-gray-700">
+                Expiration Date
               </label>
               <input
-                type="text"
-                name="title"
-                value={formData.title}
+                type="date"
+                name="expiration"
+                value={formData.expiration}
                 onChange={handleChange}
                 className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
-                placeholder="Enter announcement title..."
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-semibold text-gray-700">
-                Target Audience
-              </label>
-              <select
-                name="target"
-                value={formData.target}
-                onChange={handleChange}
-                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
-              >
-                <option value="all">All Users</option>
-                <option value="students">Students Only</option>
-                <option value="teachers">Teachers Only</option>
-              </select>
+            <button
+              type="submit"
+              className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white px-5 py-2 rounded-lg hover:opacity-90 transition w-full md:w-auto"
+            >
+              {editingId ? "Update Announcement" : "Post Announcement"}
+            </button>
+          </form>
+
+          {/* MOBILE + DESKTOP RESPONSIVE TABLE */}
+          <div className="w-full">
+            {/* Wrapper */}
+            {/* Desktop/Tablet: keep original table exactly as-is (visible on md+ only) */}
+          <div className="hidden md:block">
+            <table className="w-full text-left border border-gray-200 rounded-lg overflow-hidden">
+              <thead className="bg-[rgb(52,152,219)] text-white">
+                <tr>
+                  <th className="py-3 px-4 text-sm font-semibold">Title</th>
+                  <th className="py-3 px-4 text-sm font-semibold">Date</th>
+                  <th className="py-3 px-4 text-sm font-semibold">Target</th>
+                  <th className="py-3 px-4 text-sm font-semibold">Expiration</th>
+                  <th className="py-3 px-4 text-sm font-semibold">Author</th>
+                  <th className="py-3 px-4 text-sm font-semibold">Status</th>
+                  <th className="py-3 px-4 text-sm font-semibold text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {announcements.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="text-center py-6 text-gray-500">
+                      No announcements yet.
+                    </td>
+                  </tr>
+                ) : (
+                  announcements.map((a) => (
+                    <tr
+                      key={a.id}
+                      className={`border-b border-gray-100 transition ${
+                        a.status === "Expired"
+                          ? "bg-gray-50 opacity-80"
+                          : "hover:bg-blue-50"
+                      }`}
+                    >
+                      <td className="py-3 px-4 text-gray-800 font-medium">
+                        {a.title}
+                      </td>
+                      <td className="py-3 px-4 text-gray-700">{a.date}</td>
+                      <td className="py-3 px-4 text-gray-700">
+                        {targetLabel(a.target)}
+                      </td>
+                      <td className="py-3 px-4 text-gray-700">
+                        {a.expiration || "-"}
+                      </td>
+                      <td className="py-3 px-4 text-gray-700">{a.author}</td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                            a.status === "Active"
+                              ? "bg-green-100 text-green-700"
+                              : "bg-red-100 text-red-600"
+                          }`}
+                        >
+                          {a.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right space-x-3">
+                        <button
+                          onClick={() => handleEdit(a)}
+                          className="text-blue-500 hover:text-blue-700 transition"
+                        >
+                          <Edit3 size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(a.id)}
+                          className="text-red-500 hover:text-red-700 transition"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
             </div>
-          </div>
+            
+              {/* MOBILE CARD LIST */}
+              <div className="space-y-4 md:hidden">
+                {announcements.map((a) => (
+                  <div
+                    key={a.id}
+                    className={`border rounded-xl p-4 shadow-sm ${
+                      a.status === "Expired" ? "bg-gray-50 opacity-80" : "bg-white"
+                    }`}
+                  >
+                    <div className="mb-2">
+                      <p className="text-xs font-semibold text-gray-500">Title</p>
+                      <p className="text-gray-800 font-medium">{a.title}</p>
+                    </div>
 
-          <div className="mb-5">
-            <label className="block text-sm font-semibold text-gray-700">
-              Content
-            </label>
-            <textarea
-              name="content"
-              value={formData.content}
-              onChange={handleChange}
-              rows="4"
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
-              placeholder="Write your announcement content..."
-            ></textarea>
-          </div>
+                    <div className="mb-2">
+                      <p className="text-xs font-semibold text-gray-500">Date</p>
+                      <p className="text-gray-800">{a.date}</p>
+                    </div>
 
-          <div className="mb-5">
-            <label className="block text-sm font-semibold text-gray-700">
-              Expiration Date
-            </label>
-            <input
-              type="date"
-              name="expiration"
-              value={formData.expiration}
-              onChange={handleChange}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
-            />
-          </div>
+                    <div className="mb-2">
+                      <p className="text-xs font-semibold text-gray-500">Target</p>
+                      <p className="text-gray-800">{targetLabel(a.target)}</p>
+                    </div>
 
-          <button
-            type="submit"
-            className="bg-gradient-to-r from-[rgb(52,152,219)] to-blue-500 text-white px-5 py-2 rounded-lg hover:opacity-90 transition w-full md:w-auto"
-          >
-            {editingId ? "Update Announcement" : "Post Announcement"}
-          </button>
-        </form>
+                    <div className="mb-2">
+                      <p className="text-xs font-semibold text-gray-500">Expiration</p>
+                      <p className="text-gray-800">{a.expiration || "-"}</p>
+                    </div>
 
-       {/* MOBILE + DESKTOP RESPONSIVE TABLE */}
-<div className="w-full">
-  {/* Wrapper */}
-  <div className="md:overflow-x-auto">
-    <table className="w-full border border-gray-200 rounded-lg overflow-hidden hidden md:table">
-      <thead className="bg-[rgb(52,152,219)] text-white">
-        <tr>
-          <th className="py-3 px-4 text-sm font-semibold">Title</th>
-          <th className="py-3 px-4 text-sm font-semibold">Date</th>
-          <th className="py-3 px-4 text-sm font-semibold">Target</th>
-          <th className="py-3 px-4 text-sm font-semibold">Expiration</th>
-          <th className="py-3 px-4 text-sm font-semibold">Author</th>
-          <th className="py-3 px-4 text-sm font-semibold">Status</th>
-          <th className="py-3 px-4 text-sm font-semibold text-right">Actions</th>
-        </tr>
-      </thead>
-    </table>
+                    <div className="mb-2">
+                      <p className="text-xs font-semibold text-gray-500">Author</p>
+                      <p className="text-gray-800">{a.author}</p>
+                    </div>
 
-    {/* MOBILE CARD LIST (no overflow, fits screen) */}
-    <div className="space-y-4 md:hidden">
-      {announcements.map((a) => (
-        <div
-          key={a.id}
-          className={`border rounded-xl p-4 shadow-sm ${
-            a.status === "Expired" ? "bg-gray-50 opacity-80" : "bg-white"
-          }`}
-        >
-          <div className="mb-2">
-            <p className="text-xs font-semibold text-gray-500">Title</p>
-            <p className="text-gray-800 font-medium">{a.title}</p>
-          </div>
+                    <div className="mb-3">
+                      <p className="text-xs font-semibold text-gray-500">Status</p>
+                      <span
+                        className={`px-3 py-1 mt-1 inline-block rounded-full text-xs font-semibold ${
+                          a.status === "Active"
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-600"
+                        }`}
+                      >
+                        {a.status}
+                      </span>
+                    </div>
 
-          <div className="mb-2">
-            <p className="text-xs font-semibold text-gray-500">Date</p>
-            <p className="text-gray-800">{a.date}</p>
-          </div>
+                    {/* Actions */}
+                    <div className="flex justify-end gap-4 border-t pt-3">
+                      <button onClick={() => handleEdit(a)} className="text-blue-500 hover:text-blue-700">
+                        <Edit3 size={18} />
+                      </button>
 
-          <div className="mb-2">
-            <p className="text-xs font-semibold text-gray-500">Target</p>
-            <p className="text-gray-800">{targetLabel(a.target)}</p>
-          </div>
+                      <button onClick={() => handleDelete(a.id)} className="text-red-500 hover:text-red-700">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
-          <div className="mb-2">
-            <p className="text-xs font-semibold text-gray-500">Expiration</p>
-            <p className="text-gray-800">{a.expiration || "-"}</p>
-          </div>
-
-          <div className="mb-2">
-            <p className="text-xs font-semibold text-gray-500">Author</p>
-            <p className="text-gray-800">{a.author}</p>
-          </div>
-
-          <div className="mb-3">
-            <p className="text-xs font-semibold text-gray-500">Status</p>
-            <span
-              className={`px-3 py-1 mt-1 inline-block rounded-full text-xs font-semibold ${
-                a.status === "Active"
-                  ? "bg-green-100 text-green-700"
-                  : "bg-red-100 text-red-600"
-              }`}
-            >
-              {a.status}
-            </span>
-          </div>
-
-          {/* Actions */}
-          <div className="flex justify-end gap-4 border-t pt-3">
-            <button
-              onClick={() => handleEdit(a)}
-              className="text-blue-500 hover:text-blue-700"
-            >
-              <Edit3 size={18} />
-            </button>
-
-            <button
-              onClick={() => handleDelete(a.id)}
-              className="text-red-500 hover:text-red-700"
-            >
-              <Trash2 size={18} />
-            </button>
           </div>
         </div>
-      ))}
-    </div>
-
-    {/* DESKTOP TABLE BODY */}
-    <table className="w-full text-left border border-gray-200 rounded-lg overflow-hidden hidden md:table">
-      <tbody>
-        {announcements.map((a) => (
-          <tr
-            key={a.id}
-            className={`border-b ${
-              a.status === "Expired" ? "bg-gray-50" : "hover:bg-blue-50"
-            }`}
-          >
-            <td className="py-3 px-4 font-medium text-gray-800">{a.title}</td>
-            <td className="py-3 px-4">{a.date}</td>
-            <td className="py-3 px-4">{targetLabel(a.target)}</td>
-            <td className="py-3 px-4">{a.expiration || "-"}</td>
-            <td className="py-3 px-4">{a.author}</td>
-            <td className="py-3 px-4">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  a.status === "Active"
-                    ? "bg-green-100 text-green-700"
-                    : "bg-red-100 text-red-600"
-                }`}
-              >
-                {a.status}
-              </span>
-            </td>
-            <td className="py-3 px-4 text-right space-x-3">
-              <button
-                onClick={() => handleEdit(a)}
-                className="text-blue-500 hover:text-blue-700"
-              >
-                <Edit3 size={18} />
-              </button>
-              <button
-                onClick={() => handleDelete(a.id)}
-                className="text-red-500 hover:text-red-700"
-              >
-                <Trash2 size={18} />
-              </button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-</div>
-
       </div>
     </AdminLayout>
   );

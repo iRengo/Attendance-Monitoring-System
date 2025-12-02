@@ -1,13 +1,13 @@
 import { BookOpen, CheckCircle2, XCircle, Clock } from "lucide-react";
 import StatChip from "./StatChip";
 
-export default function HeaderSummary({ studentName, stats, filtered }) {
+export default function HeaderSummary({ studentName, stats = {}, filtered }) {
   return (
     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border border-indigo-100">
-      <div className="p-5 md:p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h2 className="text-xl md:text-2xl font-bold text-[#1f376b]">
+      <div className="p-4 md:p-5">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-lg md:text-2xl font-bold text-[#1f376b] truncate">
               Hello{studentName ? `, ${studentName}` : ""}!
             </h2>
             <p className="text-sm text-[#415CA0]/80 mt-1">
@@ -15,7 +15,7 @@ export default function HeaderSummary({ studentName, stats, filtered }) {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-2 items-center flex-wrap overflow-x-auto">
             <StatChip
               icon={<BookOpen size={16} className="text-indigo-600" />}
               label="Records"

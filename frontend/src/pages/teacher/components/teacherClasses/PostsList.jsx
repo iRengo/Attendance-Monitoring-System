@@ -73,7 +73,7 @@ export default function PostsList({
       const res = await axios.put(
         `/api/teacher/update-post/${encodeURIComponent(cId)}/${encodeURIComponent(post.id)}`,
         { teacherId: tId, content: editedText }
-    );    
+      );
       if (res.data?.success) {
         onPostUpdated?.(res.data.post);
         setEditingPostId(null);
@@ -117,7 +117,7 @@ export default function PostsList({
         {
             params: { teacherId: tId }
         }
-    );    
+      );
       if (res.data?.success) {
         onPostDeleted?.(post.id);
       } else {
@@ -156,8 +156,12 @@ export default function PostsList({
           const disableActions = !tIdResolved || !cIdResolved || deletingId === post.id;
 
           return (
-            <div key={post.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-              <div className="flex items-start justify-between gap-3">
+            <div
+              key={post.id}
+              className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5"
+            >
+              {/* Mobile: stack content vertically; Desktop (md+) preserve original horizontal layout */}
+              <div className="flex flex-col md:flex-row items-start md:justify-between gap-3">
                 <div className="flex-1">
                   {!isEditing ? (
                     <p className="text-gray-800 mb-2 whitespace-pre-wrap">{post.content}</p>
@@ -170,12 +174,12 @@ export default function PostsList({
                         className="w-full border border-gray-300 rounded-lg p-3 text-sm text-gray-800 focus:ring-2 focus:ring-[#3498db] outline-none resize-y"
                         placeholder="Edit your post..."
                       />
-                      {/* TEXT buttons (no icons) */}
-                      <div className="flex items-center gap-3 mt-2">
+                      {/* TEXT buttons (responsive) */}
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-2">
                         <button
                           onClick={() => saveEdit(post)}
                           disabled={disableActions || savingId === post.id}
-                          className={`px-4 py-1.5 rounded text-sm font-medium ${
+                          className={`w-full sm:w-auto px-4 py-1.5 rounded text-sm font-medium ${
                             disableActions || savingId === post.id
                               ? "bg-gray-200 text-gray-500 cursor-not-allowed"
                               : "bg-[#3498db] text-white hover:bg-[#2f89ca]"
@@ -185,7 +189,7 @@ export default function PostsList({
                         </button>
                         <button
                           onClick={cancelEdit}
-                          className="px-4 py-1.5 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          className="w-full sm:w-auto px-4 py-1.5 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
                         >
                           Back
                         </button>
@@ -206,7 +210,7 @@ export default function PostsList({
                             <img
                               src={att.previewThumbUrl || att.url}
                               alt={att.name || "image"}
-                              className="rounded-lg max-h-64 object-cover border"
+                              className="rounded-lg w-full md:w-auto max-h-64 object-cover border"
                               title={att.name}
                             />
                             {att.name && (
@@ -232,9 +236,9 @@ export default function PostsList({
                   <p className="text-xs text-gray-400 mt-3">{new Date(post.timestamp).toLocaleString()}</p>
                 </div>
 
-                {/* Simple icon-only Edit/Delete (always visible) */}
+                {/* Actions: keep icon-only layout on desktop; on mobile move icons below content (stacked) */}
                 {!isEditing && (
-                  <div className="flex items-center gap-3 ml-2">
+                  <div className="flex items-center gap-3 md:ml-2 mt-3 md:mt-0">
                     <Pencil
                       size={20}
                       className={`cursor-pointer ${disableActions ? "opacity-40 pointer-events-none text-gray-400" : "text-indigo-600 hover:text-indigo-700"}`}

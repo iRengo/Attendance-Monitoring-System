@@ -332,10 +332,10 @@ export default function TeacherLayout({ title, children }) {
       <div className={mainWrapperClass}>
         {/* TOP NAVBAR */}
         <div
-  className={`fixed top-0 left-0 right-0 h-12 md:h-16 bg-white shadow flex justify-between items-center px-4 md:px-6 z-50 transition-all duration-300 ${headerLeftClass}`}
+  className={`fixed top-0 left-0 right-0 h-12 md:h-16 bg-white shadow flex justify-between items-center pl-0 md:px-6 z-50 transition-all duration-300 ${headerLeftClass}`}
 >
   {/* Left section: Mobile burger + title */}
-  <div className="flex items-center gap-3">
+  <div className="flex items-center gap-0">
     <button
       className="p-1 rounded-md hover:bg-gray-100 transition md:hidden"
       onClick={() => setMobileOpen((s) => !s)}
@@ -440,40 +440,57 @@ export default function TeacherLayout({ title, children }) {
       )}
     </div>
 
-    {/* Profile */}
-<div className="relative">
+  {/* TEACHER PROFILE */}
+<div className="relative flex-none">
   <div
-    className="flex items-center gap-3 md:gap-4 cursor-pointer bg-white px-2 md:px-3 py-1 border hover:bg-[#F0F4FF] transition"
+    className="flex items-center gap-1.5 md:gap-4 cursor-pointer bg-white px-2 md:px-3 py-1 border hover:bg-[#F0F4FF] transition"
     onClick={() => setMenuOpen((o) => !o)}
   >
+    {/* Profile Picture */}
     {teacher?.profilePicUrl ? (
       <img
         src={teacher.profilePicUrl}
-        alt="Profile"
-        className="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover border border-gray-300"
+        alt="Teacher Profile"
+        className="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover border border-[#415CA0]"
       />
     ) : (
       <div className="h-8 w-8 md:h-10 md:w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold rounded-full">
-        {teacher?.firstname?.charAt(0) || "?"}
+        {teacher?.firstname
+          ? teacher.firstname.charAt(0).toUpperCase()
+          : "T"}
       </div>
     )}
 
-    {!isCollapsed && (
-      <>
-        <div className="flex flex-col leading-tight">
-          <span className="font-medium text-[#32487E] text-sm md:text-base">
-            {getDisplayName()}
-          </span>
-          <span className="text-xs text-gray-500">Teacher</span>
-        </div>
-        <ChevronDown size={16} className="text-[#415CA0]" />
-      </>
-    )}
+    {/* DESKTOP → Show full name */}
+    <div className="hidden md:flex flex-col leading-tight">
+      <span className="font-medium text-[#32487E] text-sm md:text-base">
+        {teacher
+          ? `${teacher.firstname} ${teacher.lastname}`
+          : "Loading..."}
+      </span>
+      <span className="text-xs text-gray-500">Sysadmin</span>
+    </div>
+
+    <ChevronDown size={14} className="text-[#415CA0]" />
   </div>
 
-  {/* Corrected Dropdown */}
+  {/* DROPDOWN — shows name only when opened */}
   {menuOpen && (
-    <div className="absolute right-0 mt-2 w-54 bg-white border border-gray-300 shadow-lg z-60 min-w-[12rem]">
+    <div
+      className="absolute right-0 mt-2 w-56 bg-white border border-gray-300 shadow-lg z-50 rounded-md"
+      style={{ top: "100%" }}
+    >
+      {/* Only visible inside dropdown */}
+      <div className="px-4 py-3 border-b md:hidden">
+        <p className="font-medium text-[#32487E]">
+          {teacher
+            ? `${teacher.firstname} ${teacher.lastname}`
+            : "Loading..."}
+        </p>
+        <p className="text-xs text-gray-500">Teacher</p>
+      </div>
+
+      {/* Logout Button */}
       <button
         onClick={handleLogout}
         className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors"
@@ -484,6 +501,8 @@ export default function TeacherLayout({ title, children }) {
     </div>
   )}
 </div>
+
+
 
   </div>
 </div>

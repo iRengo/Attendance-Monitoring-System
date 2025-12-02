@@ -389,68 +389,97 @@ export default function StudentLayout({ title, children }) {
       {/* Main Content Wrapper */}
       <div className={mainWrapperClass}>
         {/* Top Bar */}
-        <div className={`fixed top-0 h-12 md:h-16 bg-white shadow flex justify-between items-center px-4 md:px-6 z-40 transition-all duration-300 ${headerLeftClass}`}>
-  
+        <div
+  className={`fixed top-0 h-12 md:h-16 bg-white shadow flex justify-between items-center pl-0 pr-10 md:px-6 z-40 transition-all duration-300 ${headerLeftClass}`}
+>
+
   {/* Left section */}
-  <div className="flex items-center gap-3">
-    {/* Mobile burger */}
+  <div className="flex items-center gap-0 relative w-full md:w-auto">
+    {/* Mobile burger - sticks to the left edge */}
     <button
-      className="p-1 rounded-md hover:bg-gray-100 transition md:hidden"
+      className="p-1 md:hidden absolute left-0 rounded-md hover:bg-gray-100 transition"
       onClick={() => setMobileOpen((s) => !s)}
       aria-label="Toggle menu"
     >
       <Menu size={18} className="text-[#415CA0]" />
     </button>
 
-    <h2 className="text-base md:text-lg font-bold text-[#415CA0] truncate">{title}</h2>
+    <h2 className="ml-12 md:ml-0 text-base md:text-lg font-bold text-[#415CA0] truncate">
+      {title}
+    </h2>
   </div>
+
 
   {/* Right section */}
   <div className="flex items-center gap-4 md:gap-6 relative flex-none">
     {/* Profile menu container */}
     <div className="relative flex-none">
-      <div
-        className="flex items-center gap-3 md:gap-4 cursor-pointer bg-white px-1 md:px-3 py-1 border hover:bg-[#F0F4FF] transition"
-        onClick={() => setMenuOpen((o) => !o)}
-      >
-        {profilePicUrl ? (
-          <img
-            src={profilePicUrl}
-            alt="Profile"
-            className="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover"
-          />
-        ) : (
-          <div className="h-8 w-8 md:h-10 md:w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold rounded-full">
-            {profileInitial}
-          </div>
-        )}
+  <div
+    className="flex items-center gap-1 md:gap-4 cursor-pointer bg-white px-1 md:px-3 py-1 border hover:bg-[#F0F4FF] transition"
+    onClick={() => setMenuOpen((o) => !o)}
+  >
+    {/* Profile Image */}
+    {profilePicUrl ? (
+      <img
+        src={profilePicUrl}
+        alt="Profile"
+        className="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover"
+      />
+    ) : (
+      <div className="h-8 w-8 md:h-10 md:w-10 flex items-center justify-center bg-[#415CA0] text-white font-bold rounded-full">
+        {profileInitial}
+      </div>
+    )}
 
-        {!isCollapsed && (
-          <>
-            <div className="flex flex-col leading-tight">
-              <span className="font-medium text-[#32487E] text-sm md:text-base">{fullName}</span>
-              <span className="text-xs text-gray-500">Student</span>
-            </div>
-            <ChevronDown size={16} className="text-[#415CA0]" />
-          </>
-        )}
+    {/* DESKTOP ONLY — do NOT show on mobile */}
+    <div className="hidden md:flex flex-col leading-tight">
+      <span className="font-medium text-[#32487E] text-sm md:text-base">{fullName}</span>
+      <span className="text-xs text-gray-500">Student</span>
+    </div>
+
+    {/* DESKTOP ONLY CHEVRON */}
+    <ChevronDown size={16} className="hidden md:block text-[#415CA0]" />
+  </div>
+
+  {/* MOBILE DROPDOWN — only visible on mobile */}
+  {menuOpen && (
+    <div
+      className="absolute right-0 w-52 bg-white border border-gray-300 shadow-lg z-50 md:hidden"
+      style={{ top: "100%" }}
+    >
+      {/* MOBILE NAME DISPLAY */}
+      <div className="px-4 py-2 border-b">
+        <span className="font-medium text-[#32487E]">{fullName}</span>
+        <p className="text-xs text-gray-500">Student</p>
       </div>
 
-      {menuOpen && (
-        <div
-          className="absolute right-0 w-54 bg-white border border-gray-300 shadow-lg z-50"
-          style={{ top: "100%" }}
-        >
-          <button
-            onClick={handleLogout}
-            className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors"
-          >
-            <LogOut size={18} />
-            <span>Logout</span>
-          </button>
-        </div>
-      )}
+      <button
+        onClick={handleLogout}
+        className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors"
+      >
+        <LogOut size={18} />
+        <span>Logout</span>
+      </button>
     </div>
+  )}
+
+  {/* DESKTOP DROPDOWN — unchanged */}
+  {menuOpen && (
+    <div
+      className="absolute right-0 w-54 bg-white border border-gray-300 shadow-lg z-50 hidden md:block"
+      style={{ top: "100%" }}
+    >
+      <button
+        onClick={handleLogout}
+        className="flex items-center w-full gap-2 px-4 py-2 text-red-600 hover:bg-gray-200 transition-colors"
+      >
+        <LogOut size={18} />
+        <span>Logout</span>
+      </button>
+    </div>
+  )}
+</div>
+
   
 
             {/* NOTIFICATIONS DROPDOWN (fixed so it won't get clipped by sidebars/parents) */}

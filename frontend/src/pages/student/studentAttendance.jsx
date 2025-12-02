@@ -29,42 +29,58 @@ export default function StudentAttendance() {
 
   return (
     <StudentLayout title="Attendance">
-      <div className="space-y-6">
-        <HeaderSummary
-          studentName={studentName}
-          stats={stats}
-          filtered={!!statusFilter || !!subjectFilter}
-        />
+      {/*
+        - Use negative horizontal margins to cancel parent padding (so content reaches left edge on mobile).
+        - Inner padding is kept small (px-2 / sm:px-4) to make the UI tight but still comfortable.
+        - The table is placed inside an overflow-x-auto wrapper (handled in AttendanceTable) so long content won't push the entire page.
+      */}
+      <div className="-mx-4 sm:-mx-6">
+        <div className="px-2 sm:px-4 w-full max-w-full overflow-x-hidden">
+          <div className="space-y-5 max-w-full">
+            <div className="min-w-0">
+              <HeaderSummary
+                studentName={studentName}
+                stats={stats}
+                filtered={!!statusFilter || !!subjectFilter}
+              />
+            </div>
 
-        <FiltersBar
-          statusFilter={statusFilter}
-          subjectFilter={subjectFilter}
-          subjectOptions={subjectOptions}
-          setStatusFilter={setStatusFilter}
-          setSubjectFilter={setSubjectFilter}
-          resetFilters={resetFilters}
-          exportCSV={exportCSV}
-          exportPDF={exportPDF}
-          exporting={exporting}
-          setPage={setPage}
-        />
+            <div className="min-w-0">
+              <FiltersBar
+                statusFilter={statusFilter}
+                subjectFilter={subjectFilter}
+                subjectOptions={subjectOptions}
+                setStatusFilter={setStatusFilter}
+                setSubjectFilter={setSubjectFilter}
+                resetFilters={resetFilters}
+                exportCSV={exportCSV}
+                exportPDF={exportPDF}
+                exporting={exporting}
+                setPage={setPage}
+              />
+            </div>
 
-        <AttendanceTable
-          loading={loading}
-          rows={paginatedRows}
-        />
+            <div className="min-w-0">
+              <AttendanceTable loading={loading} rows={paginatedRows} />
+            </div>
 
-        {filteredRows.length > 0 && (
-          <PaginationFooter
-            paginatedCount={paginatedRows.length}
-            totalFiltered={filteredRows.length}
-            page={page}
-            totalPages={totalPages}
-            setPage={setPage}
-          />
-        )}
+            {filteredRows.length > 0 && (
+              <div className="min-w-0">
+                <PaginationFooter
+                  paginatedCount={paginatedRows.length}
+                  totalFiltered={filteredRows.length}
+                  page={page}
+                  totalPages={totalPages}
+                  setPage={setPage}
+                />
+              </div>
+            )}
 
-        <TipFooter />
+            <div className="min-w-0">
+              <TipFooter />
+            </div>
+          </div>
+        </div>
       </div>
     </StudentLayout>
   );

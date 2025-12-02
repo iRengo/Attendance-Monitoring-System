@@ -70,7 +70,7 @@ export default function ClassDetail({ selectedClass, posts, teachers, onBack }) 
     "-";
 
   return (
-    <div className="min-h-screen bg-gray-50 p-10">
+    <div className="min-h-screen bg-gray-50 p-0 md:p-10">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-[#3498db]">
