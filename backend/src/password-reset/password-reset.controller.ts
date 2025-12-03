@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpException, HttpStatus, Post } from '@nestjs/common';
 import { PasswordResetService } from './password-reset.service';
-import { SendResetDto } from './send-reset.dto';
-import { CompleteResetDto } from './complete-reset.dto';
+import { SendResetDto } from './dto/send-reset.dto';
+import { CompleteResetDto } from './dto/complete-reset.dto';
 
 @Controller('password')
 export class PasswordResetController {
