@@ -19,15 +19,19 @@ async function bootstrap() {
     origin: [
       "http://localhost:5173",
       "http://localhost",
-      "https://aics-attendanceportal.online",     // your domain
-      "https://www.aics-attendanceportal.online", // www version
+      "https://aics-attendanceportal.online",
+      "https://www.aics-attendanceportal.online",
     ],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true,
   });
 
+  // ✅ Add global prefix /api
+  app.setGlobalPrefix('api');
+
   await app.listen(3000);
   console.log('🚀 Backend running at http://localhost:3000');
+  console.log('🌐 All routes are now prefixed with /api');
 }
 
 bootstrap();
