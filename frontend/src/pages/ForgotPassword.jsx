@@ -26,6 +26,15 @@ function maskEmail(email = "") {
   return `${local.slice(0, visible)}${"*".repeat(Math.max(1, local.length - visible - 1))}${local.slice(-1)}@${domain}`;
 }
 
+// Build API base at runtime (handles absolute URLs, relative paths, or empty)
+function getApiBase() {
+  const raw = import.meta.env.VITE_API_URL || "";
+  const s = raw.trim();
+  if (!s) return ""; // use same-origin relative paths
+  // Remove trailing slash
+  return s.replace(/\/$/, "");
+}
+
 export default function ForgotPassword() {
   const [role, setRole] = useState("student");
   const [studentId, setStudentId] = useState("");
@@ -67,7 +76,8 @@ export default function ForgotPassword() {
 
     try {
       setSubmitting(true);
-      const API_URL = import.meta.env.VITE_API_URL || "";
+      const API_BASE = getApiBase(); // runtime base, '' means same-origin
+      const sendResetEmailUrl = `${API_BASE}/api/password/send-reset-email`;
 
       if (role === "student") {
         if (!studentId.trim()) {
@@ -107,19 +117,18 @@ export default function ForgotPassword() {
         });
 
         let mailSent = false;
-        if (API_URL) {
-          try {
-            await axios.post(`${API_URL}/password/send-reset-email`, {
-              to: personalEmail,
-              token,
-              role: "student",
-              displayName: studentDoc?.firstname ? `${studentDoc.firstname} ${studentDoc.lastname || ""}` : "",
-            });
-            mailSent = true;
-          } catch (err) {
-            console.warn("Mail send failed (dev fallback):", err);
-            mailSent = false;
-          }
+        try {
+          // Try to send via deployed API (or same-origin proxy)
+          await axios.post(sendResetEmailUrl, {
+            to: personalEmail,
+            token,
+            role: "student",
+            displayName: studentDoc?.firstname ? `${studentDoc.firstname} ${studentDoc.lastname || ""}` : "",
+          });
+          mailSent = true;
+        } catch (err) {
+          console.warn("Mail send failed (dev fallback):", err);
+          mailSent = false;
         }
 
         if (mailSent) {
@@ -163,18 +172,17 @@ export default function ForgotPassword() {
         });
 
         let mailSent = false;
-        if (API_URL) {
-          try {
-            await axios.post(`${API_URL}/password/send-reset-email`, {
-              to: personalEmail,
-              token,
-              role: "teacher",
-              displayName: teacherDoc?.firstname ? `${teacherDoc.firstname} ${teacherDoc.lastname || ""}` : "",
-            });
-            mailSent = true;
-          } catch (err) {
-            mailSent = false;
-          }
+        try {
+          const res = await axios.post(sendResetEmailUrl, {
+            to: personalEmail,
+            token,
+            role: "teacher",
+            displayName: teacherDoc?.firstname ? `${teacherDoc.firstname} ${teacherDoc.lastname || ""}` : "",
+          });
+          mailSent = true;
+        } catch (err) {
+          console.warn("Mail send failed (dev fallback):", err);
+          mailSent = false;
         }
 
         if (mailSent) {
