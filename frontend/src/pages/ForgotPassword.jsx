@@ -254,20 +254,40 @@ export default function ForgotPassword() {
               </div>
 
               {sentInfo && sentInfo.method === "email" && (
-                <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded text-sm">
-                  <p>A confirmation has been sent to <strong>{maskEmail(sentInfo.personalEmail)}</strong>. Please check your inbox.</p>
+                <div className="mt-3 p-3 bg-green-100 border border-green-400 text-green-900 rounded text-sm">
+                  <p>
+                    A confirmation has been sent to <strong>{maskEmail(sentInfo.personalEmail)}</strong>. Please check your inbox.
+                  </p>
                 </div>
               )}
 
               {sentInfo && sentInfo.method === "dev" && devResetToken && (
-                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm">
-                  <p className="mb-2">Development: mailer not configured. Reset token created for <strong>{maskEmail(sentInfo.personalEmail)}</strong>.</p>
+                <div className="mt-3 p-3 bg-yellow-100 border border-yellow-400 text-yellow-900 rounded text-sm">
+                  <p className="mb-2">
+                    Development: mailer not configured. Reset token created for <strong>{maskEmail(sentInfo.personalEmail)}</strong>.
+                  </p>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => navigate(`/reset-password?token=${devResetToken}`)} className="px-3 py-1 rounded bg-[#10b981] text-white text-sm">Open reset UI</button>
-                    <button type="button" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/reset-password?token=${devResetToken}`); toast.info("Reset link copied"); }} className="px-3 py-1 rounded bg-gray-100 text-gray-700 text-sm">Copy link</button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/reset-password?token=${devResetToken}`)}
+                      className="px-3 py-1 rounded bg-green-600 text-white text-sm"
+                    >
+                      Open reset UI
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/reset-password?token=${devResetToken}`);
+                        toast.info("Reset link copied");
+                      }}
+                      className="px-3 py-1 rounded bg-gray-200 text-gray-800 text-sm"
+                    >
+                      Copy link
+                    </button>
                   </div>
                 </div>
               )}
+
             </form>
           </div>
         </div>
