@@ -218,7 +218,7 @@ export default function ForgotPassword() {
 
         {/* FORGOT PASSWORD FORM */}
         <div className="flex-1 flex items-start justify-center py-10 md:py-40">
-        <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-3xl h-[300px] shadow-lg mx-6">
+         <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-3xl h-[300px] shadow-lg mx-6">
             <h2 className="text-xl font-bold text-center mb-1 text-[#5F75AF]">
               Forgot Password
             </h2>
