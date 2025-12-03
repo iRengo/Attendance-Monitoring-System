@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import AdminLayout from "../../components/adminLayout";
 import { db } from "../../firebase";
 import { collection, getDocs, onSnapshot } from "firebase/firestore";
@@ -9,6 +9,15 @@ import AttendanceTrendsChart from "./components/adminDashboard/AttendanceTrendsC
 import PresencePie from "./components/adminDashboard/PresencePie";
 import RecentActivities from "./components/adminDashboard/RecentActivities";
 
+/**
+ * This version measures the available viewport width to the right of the
+ * Dashboard container's left edge and constrains the dashboard content to
+ * that available width. This makes the content "fill the space on the left"
+ * (i.e. beside the sidebar) and prevents it from being cut off on the right.
+ *
+ * It does not change desktop dimensions — it only computes and applies a
+ * maxWidth for the dashboard content based on the current left offset.
+ */
 export default function AdminDashboard() {
   const [totalStudents, setTotalStudents] = useState(0);
   const [totalTeachers, setTotalTeachers] = useState(0);
@@ -69,7 +78,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const todayKey = getTodayKey();
     const sessionsRef = collection(db, "attendance_sessions");
-  
+
     const unsub = onSnapshot(
       sessionsRef,
       (snap) => {
@@ -77,16 +86,16 @@ export default function AdminDashboard() {
           const todayDocs = snap.docs.filter((d) => extractDateFromId(d.id) === todayKey);
           let presentSet = new Set();
           let absentSet = new Set();
-  
+
           todayDocs.forEach((docSnap) => {
             const data = docSnap.data() || {};
-  
+
             const presentArr = pickArrayField(data, ["studentsPresent", "present", "presentIds"]) || [];
             const absentArr = pickArrayField(data, ["studentsAbsent", "absent", "absentIds"]) || [];
-  
+
             presentArr.forEach((id) => presentSet.add(id));
             absentArr.forEach((id) => absentSet.add(id));
-  
+
             if (!presentArr.length && !absentArr.length && Array.isArray(data.entries)) {
               data.entries.forEach((e) => {
                 const st = (e?.status || "unknown").toLowerCase();
@@ -95,15 +104,15 @@ export default function AdminDashboard() {
               });
             }
           });
-  
+
           absentSet.forEach((id) => {
             if (presentSet.has(id)) absentSet.delete(id);
           });
-  
+
           const presentCount = presentSet.size;
           const absentCount = absentSet.size;
           const percent = presentCount + absentCount > 0 ? Math.round((presentCount / (presentCount + absentCount)) * 100) : 0;
-  
+
           setAttendancePercent(percent);
           setPresenceData([
             { name: "Present", value: presentCount },
@@ -115,7 +124,7 @@ export default function AdminDashboard() {
       },
       (err) => console.error(err)
     );
-  
+
     return () => unsub();
   }, []);
 
@@ -143,36 +152,82 @@ export default function AdminDashboard() {
     return () => unsubscribe();
   }, []);
 
+  // ---- NEW: measure available width to prevent right-side cutoff ----
+  const wrapperRef = useRef(null);
+  const [availableWidth, setAvailableWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 0);
+
+  useEffect(() => {
+    const measure = () => {
+      if (!wrapperRef.current) {
+        setAvailableWidth(window.innerWidth);
+        return;
+      }
+      const rect = wrapperRef.current.getBoundingClientRect();
+      // available width to the right of wrapper's left edge (fit to viewport)
+      const avail = Math.max(0, Math.floor(window.innerWidth - rect.left - 16)); // 16px safety padding
+      setAvailableWidth(avail || window.innerWidth);
+    };
+
+    // initial measure and a delayed re-measure to catch layout changes after mount
+    measure();
+    const delayed = setTimeout(measure, 300); // catches post-mount layout shifts
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.documentElement);
+    window.addEventListener("resize", measure);
+
+    return () => {
+      clearTimeout(delayed);
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  // ---- End measurement logic ----
+
+  // NOTE: we do not change desktop dimensions; we only constrain the dashboard content
+  // to not exceed the measured available width. On desktop `rect.left` will usually be the
+  // left offset of the main content, so maxWidth becomes (viewport - left).
+  const contentStyle = {
+    width: "100%",
+    maxWidth: availableWidth ? `${availableWidth}px` : "100%",
+    boxSizing: "border-box",
+  };
+
   return (
     <AdminLayout title="Dashboard">
-      {/*
-        Mobile-only left gutter usage while preserving desktop exactly:
-        - -ml-4 applies on mobile (<640px) to reclaim layout gutter
-        - sm:ml-0 resets margin on >=640px so desktop matches your original file
-        - inner padding smaller on mobile (px-4 py-4) and becomes p-6 on sm+ to match desktop spacing
-      */}
-      <div className="-ml-4 sm:ml-0">
-        <div className="px-4 py-4 sm:p-6 space-y-6 sm:space-y-8 w-full">
+      {/* top-level wrapper that we measure */}
+      <div ref={wrapperRef} style={contentStyle} className="mx-auto">
+        <div className="px-4 py-4 sm:px-1 sm:py-6 space-y-6 sm:space-y-8 w-full box-border">
           {/* Metrics */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 min-h-0">
-            <div className="min-w-0 w-full">
-              <Card title="Total Students" value={totalStudents} iconName="users" />
+            <div className="min-w-0 w-full overflow-hidden">
+              <div className="w-full box-border">
+                <Card title="Total Students" value={totalStudents} iconName="users" />
+              </div>
             </div>
-            <div className="min-w-0 w-full">
-              <Card title="Total Teachers" value={totalTeachers} iconName="book" />
+            <div className="min-w-0 w-full overflow-hidden">
+              <div className="w-full box-border">
+                <Card title="Total Teachers" value={totalTeachers} iconName="book" />
+              </div>
             </div>
-            <div className="min-w-0 w-full">
-              <Card title="Attendance % Today" value={`${attendancePercent}%`} iconName="chart" />
+            <div className="min-w-0 w-full overflow-hidden">
+              <div className="w-full box-border">
+                <Card title="Attendance % Today" value={`${attendancePercent}%`} iconName="chart" />
+              </div>
             </div>
           </div>
 
           {/* Graphs Section */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-start min-h-0">
             <div className="lg:col-span-2 min-w-0 w-full overflow-hidden">
-              <AttendanceTrendsChart data={attendanceTrends} className="w-full" />
+              <div className="w-full max-w-full overflow-hidden min-w-0">
+                <AttendanceTrendsChart data={attendanceTrends} className="w-full max-w-full" />
+              </div>
             </div>
-            <div className="lg:col-span-1 min-w-0 w-full">
-              <PresencePie presenceData={presenceData} attendancePercent={attendancePercent} className="w-full h-56" />
+            <div className="lg:col-span-1 min-w-0 w-full overflow-hidden">
+              <div className="w-full max-w-full overflow-hidden">
+                <PresencePie presenceData={presenceData} attendancePercent={attendancePercent} className="w-full h-56 max-w-full" />
+              </div>
             </div>
           </div>
 

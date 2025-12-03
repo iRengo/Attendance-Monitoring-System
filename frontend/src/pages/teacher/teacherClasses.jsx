@@ -1,14 +1,12 @@
-import { useState } from "react";
-import TeacherLayout from "../../components/teacherLayout";
+import React, { useState } from "react";
 import { Plus } from "lucide-react";
 import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../../firebase";
 import Swal from "sweetalert2";
 
+import TeacherLayout from "../../components/teacherLayout";
 import ClassCard from "./components/teacherClasses/ClassCard";
 import ClassModal from "./components/teacherClasses/ClassModal";
-import PostComposer from "./components/teacherClasses/PostComposer";
-import PostsList from "./components/teacherClasses/PostsList";
 import PeopleTab from "./components/teacherClasses/PeopleTab";
 import PreviewModal from "./components/teacherClasses/PreviewModal";
 
@@ -20,7 +18,7 @@ export default function CurrentClasses() {
   const teacherId = auth.currentUser?.uid;
   const [selectedClass, setSelectedClass] = useState(null);
   const [dropdownOpenId, setDropdownOpenId] = useState(null);
-  const [activeTab, setActiveTab] = useState("posts");
+  const [activeTab, setActiveTab] = useState("people"); // default to people
   const [preview, setPreview] = useState(null);
 
   const {
@@ -115,11 +113,10 @@ export default function CurrentClasses() {
   };
 
   const onViewClass = (cls) => {
-    setActiveTab("posts");
+    // When viewing a class we show the People tab only (per your request)
+    setActiveTab("people");
     setPreview(null);
     setDropdownOpenId(null);
-    setClasses((prev) => prev);
-    setPreview(null);
     setSelectedClass(cls);
     refreshPosts();
     refreshStudents();
@@ -147,49 +144,10 @@ export default function CurrentClasses() {
             </button>
           </div>
 
-          <div className="mb-6 border-b border-gray-200">
-            <nav className="-mb-px flex gap-4">
-              <button
-                onClick={() => setActiveTab("posts")}
-                className={`px-4 py-2 font-medium text-sm ${
-                  activeTab === "posts"
-                    ? "border-b-2 border-[#3498db] text-[#3498db]"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                Posts
-              </button>
-              <button
-                onClick={() => setActiveTab("people")}
-                className={`px-4 py-2 font-medium text-sm ${
-                  activeTab === "people"
-                    ? "border-b-2 border-[#3498db] text-[#3498db]"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                Students
-              </button>
-            </nav>
+          {/* Show PeopleTab only (no PostComposer / PostsList) */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+            <PeopleTab students={students} />
           </div>
-
-          {activeTab === "posts" ? (
-            <>
-              <PostComposer
-                teacherId={teacherId}
-                selectedClass={selectedClass}
-                onPostAdded={(p) => {
-                  addPostToState(p);
-                }}
-              />
-              <div className="space-y-5 mt-4">
-                <PostsList posts={posts} setPreview={setPreview} />
-              </div>
-            </>
-          ) : (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-              <PeopleTab students={students} />
-            </div>
-          )}
         </div>
 
         <PreviewModal preview={preview} setPreview={setPreview} />

@@ -468,7 +468,7 @@ export default function TeacherLayout({ title, children }) {
           ? `${teacher.firstname} ${teacher.lastname}`
           : "Loading..."}
       </span>
-      <span className="text-xs text-gray-500">Sysadmin</span>
+      <span className="text-xs text-gray-500">Teacher</span>
     </div>
 
     <ChevronDown size={14} className="text-[#415CA0]" />

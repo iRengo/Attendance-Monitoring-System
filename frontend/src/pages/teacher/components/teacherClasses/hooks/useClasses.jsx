@@ -1,28 +1,13 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { convertTo12Hour } from "../../utils/time";
+import { convertTo12Hour, convertTo24Hour } from "../../utils/time";
 import Swal from "sweetalert2";
 
 /**
  * Resilient useClasses hook
- * - caches last good classes in localStorage so UI can still render if backend fails
- * - fetches student counts in a single batched request (preferred) or falls back to batched per-class calls
- * - non-blocking on initial fetch failure (loads cached data if available)
+ * - store/send timezone-agnostic 24-hour "HH:mm" strings (no Date objects)
+ * - display formatted 12-hour strings using convertTo12Hour()
  */
-
-function convertTo24Hour(time12h) {
-  if (!time12h) return "";
-  const t = String(time12h).trim();
-  if (/^\d{2}:\d{2}$/.test(t)) return t;
-  const m = t.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
-  if (!m) return t; // fallback
-  let [_, hh, mm, ap] = m;
-  let h = parseInt(hh, 10);
-  const isPM = ap.toLowerCase() === "pm";
-  if (isPM && h < 12) h += 12;
-  if (!isPM && h === 12) h = 0;
-  return `${String(h).padStart(2, "0")}:${mm}`;
-}
 
 const CLASSES_CACHE_KEY = "teacher_classes_cache_v1";
 const COUNTS_CACHE_KEY = "teacher_class_counts_cache_v1";
@@ -37,30 +22,52 @@ export default function useClasses(teacherId) {
     section: "",
     gradeLevel: "",
     days: [],
-    startTime: "",
-    endTime: "",
+    startTime: "", // "HH:mm"
+    endTime: "",   // "HH:mm"
   });
   const [showModal, setShowModal] = useState(false);
   const [showDaysDropdown, setShowDaysDropdown] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Load classes from server but fall back to cached copy if server fails
+  // Load classes (with local cache fallback)
   useEffect(() => {
     let cancelled = false;
     const fetchClasses = async () => {
       if (!teacherId) return;
       try {
-        const res = await axios.get("/api/teacher/classes", {
-          params: { teacherId },
-        });
-      
+        const res = await axios.get("/api/teacher/classes", { params: { teacherId } });
         if (res.data.success) {
           const cleaned = (res.data.classes || []).map((cls) => {
-            const { roomId, ...rest } = cls;
-            return rest;
+            // IMPORTANT: do NOT coerce Firestore Timestamp objects to strings with String(...)
+            // Keep timestamp objects as-is so formatTimeValue can handle them.
+            const timeStart = typeof cls.time_start === "string"
+              ? cls.time_start.trim()
+              : cls.time_start || ""; // leave object (timestamp) unchanged
+            const timeEnd = typeof cls.time_end === "string"
+              ? cls.time_end.trim()
+              : cls.time_end || "";
+
+            let displayTime = cls.time || "";
+            if (!displayTime && timeStart && timeEnd) {
+              // convert only if values are 24-hour strings; if they're timestamp objects,
+              // convertTo12Hour will be used later from the UI layer after extracting hours/minutes.
+              if (typeof timeStart === "string" && typeof timeEnd === "string") {
+                displayTime = `${convertTo12Hour(timeStart)} - ${convertTo12Hour(timeEnd)}`;
+              } else {
+                // leave displayTime empty and let the UI handle timestamp -> display conversion
+                displayTime = "";
+              }
+            }
+
+            return {
+              ...cls,
+              time_start: timeStart,
+              time_end: timeEnd,
+              time: displayTime,
+            };
           });
-      
+
           if (!cancelled) {
             setClasses(cleaned);
             try {
@@ -68,19 +75,13 @@ export default function useClasses(teacherId) {
             } catch (e) {
               console.warn("Could not persist classes to localStorage", e);
             }
-      
-            if (res.data.needsIndex) {
-              console.warn(
-                "Firestore composite index missing for classes {teacherId, createdAt}."
-              );
-            }
           }
         } else {
           throw new Error(res.data.message || "Failed to fetch classes");
         }
-      } catch (err) {      
+      } catch (err) {
         console.error("Error fetching classes:", err);
-        // Try load cached classes from localStorage
+        // fall back to cache
         try {
           const cached = localStorage.getItem(CLASSES_CACHE_KEY);
           if (cached) {
@@ -89,39 +90,35 @@ export default function useClasses(teacherId) {
               setClasses(parsed);
               console.warn("Loaded cached classes due to fetch error.");
             }
-            // do not alarm the user with a blocking modal here; just log
             return;
           }
         } catch (e) {
           console.warn("Failed to read cached classes:", e);
         }
 
-        // if no cached data, then show a lightweight non-blocking toast so user knows
-        // (avoid blocking promises during page render)
         try {
           Swal.fire({
             icon: "warning",
             title: "Unable to fetch classes",
-            text:
-              "Could not fetch classes from the server. Try again later. (Showing no classes.)",
+            text: "Could not fetch classes from the server. Try again later. (Showing cached or no classes.)",
             timer: 2500,
             showConfirmButton: false,
             toast: true,
             position: "top-end",
           });
         } catch (e) {
-          // ignore Swal errors in initial load
+          // ignore Swal errors
         }
       }
     };
+
     fetchClasses();
     return () => {
       cancelled = true;
     };
   }, [teacherId]);
 
-  // Fetch student counts in one request if possible, otherwise do batched requests.
-  // This effect is non-blocking — classes will render immediately without waiting for counts.
+  // Fetch student counts (batched preferred)
   useEffect(() => {
     let cancelled = false;
     if (!teacherId || classes.length === 0) return;
@@ -129,45 +126,36 @@ export default function useClasses(teacherId) {
     const fetchCounts = async () => {
       try {
         const classIds = classes.map((c) => c.id);
-
-        // Preferred: single endpoint that returns counts for many classIds
+        // preferred batch endpoint
         try {
-          const res = await axios.post("/api/teacher/class-student-counts", {
-            teacherId,
-            classIds,
-          });
+          const res = await axios.post("/api/teacher/class-student-counts", { teacherId, classIds });
           if (res.data && res.data.success && res.data.counts) {
             if (!cancelled) {
               setStudentCounts(res.data.counts);
               try {
                 localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(res.data.counts));
-              } catch (e) {
-                console.warn("Could not persist class counts", e);
-              }
+              } catch (e) {}
             }
             return;
           }
         } catch (err) {
-          // endpoint may not exist or failed; fall back to per-class batched fetches
-          console.warn("Batch counts endpoint failed, falling back to batched per-class requests.", err);
+          console.warn("Batch counts endpoint failed, falling back.", err);
         }
 
-        // Fallback: batched per-class calls with controlled concurrency and failure tolerance
+        // fallback: per-class requests with concurrency
         const results = {};
-        const concurrency = 4; // tune as needed to avoid server spikes
+        const concurrency = 4;
         const ids = classIds.slice();
 
         const worker = async () => {
           while (ids.length > 0 && !cancelled) {
             const id = ids.shift();
             try {
-              const res = await axios.get("/api/teacher/class-students", {
-                params: { teacherId, classId: id },
-              });
+              const res = await axios.get("/api/teacher/class-students", { params: { teacherId, classId: id } });
               results[id] = res.data && res.data.success ? (res.data.students || []).length : 0;
             } catch (err) {
               console.warn("Failed fetching students for", id, err);
-              // try using cached counts for this class if present:
+              // try cached counts
               const cached = localStorage.getItem(COUNTS_CACHE_KEY);
               if (cached) {
                 try {
@@ -176,24 +164,19 @@ export default function useClasses(teacherId) {
                     results[id] = parsed[id];
                     continue;
                   }
-                } catch (e) {
-                  // ignore
-                }
+                } catch (e) {}
               }
-              results[id] = 0; // safe fallback
+              results[id] = 0;
             }
           }
         };
 
-        // start workers
         await Promise.all(new Array(concurrency).fill(0).map(() => worker()));
         if (!cancelled) {
           setStudentCounts(results);
           try {
             localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(results));
-          } catch (e) {
-            console.warn("Could not persist counts cache", e);
-          }
+          } catch (e) {}
         }
       } catch (err) {
         console.error("Error fetching student counts:", err);
@@ -206,6 +189,7 @@ export default function useClasses(teacherId) {
     };
   }, [classes, teacherId]);
 
+  // Save or update class — IMPORTANT: send 24-hour "HH:mm" strings to backend
   const handleSaveClass = async () => {
     if (
       !classForm.subject.trim() ||
@@ -220,8 +204,12 @@ export default function useClasses(teacherId) {
       return;
     }
 
-    const startTime12 = convertTo12Hour(classForm.startTime);
-    const endTime12 = convertTo12Hour(classForm.endTime);
+    // Normalize to 24-hour "HH:mm" (timezone-agnostic)
+    const start24 = convertTo24Hour(classForm.startTime);
+    const end24 = convertTo24Hour(classForm.endTime);
+    const start12 = convertTo12Hour(start24);
+    const end12 = convertTo12Hour(end24);
+
     const daysString = classForm.days.join(", ");
     const computedName = `${classForm.subject} ${classForm.section}-${classForm.gradeLevel}`.trim();
 
@@ -229,81 +217,64 @@ export default function useClasses(teacherId) {
 
     try {
       if (isEditMode) {
-        const res = await axios.put(
-          `/api/teacher/update-class/${classForm.id}`,        
-          {
-            teacherId,
-            subjectName: classForm.subject,
-            roomNumber: classForm.room,
-            section: classForm.section,
-            gradeLevel: classForm.gradeLevel,
-            days: daysString,
-            time_start: startTime12,
-            time_end: endTime12,
-            name: computedName,
-          }
-        );
-
-        if (res.data.success) {
-          setClasses((prev) =>
-            prev.map((cls) =>
-              cls.id === classForm.id
-                ? {
-                    ...cls,
-                    subjectName: classForm.subject,
-                    name: computedName,
-                    teacherId,
-                    roomNumber: classForm.room,
-                    section: classForm.section,
-                    gradeLevel: classForm.gradeLevel,
-                    days: daysString,
-                    time_start: startTime12,
-                    time_end: endTime12,
-                  }
-                : cls
-            )
-          );
-          try {
-            localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(
-              classes.map((c) => (c.id === classForm.id ? {
-                ...c,
-                subjectName: classForm.subject,
-                name: computedName,
-                teacherId,
-                roomNumber: classForm.room,
-                section: classForm.section,
-                gradeLevel: classForm.gradeLevel,
-                days: daysString,
-                time_start: startTime12,
-                time_end: endTime12,
-              } : c))
-            ));
-          } catch (e) {
-            // ignore localStorage write failure
-          }
-
-          await Swal.fire({
-            icon: "success",
-            title: "Updated",
-            text: "Class updated successfully!",
-            timer: 1400,
-            showConfirmButton: false,
-          });
-        } else {
-          throw new Error(res.data.message || "Update failed");
-        }
-      } else {
-        const res = await axios.post("/api/teacher/add-class", {
+        const payload = {
           teacherId,
           subjectName: classForm.subject,
           roomNumber: classForm.room,
           section: classForm.section,
           gradeLevel: classForm.gradeLevel,
           days: daysString,
-          time_start: startTime12,
-          time_end: endTime12,
+          // send timezone-agnostic 24-hour values
+          time_start: start24,
+          time_end: end24,
+          // optional display string for legacy clients
+          time_display: `${start12} - ${end12}`,
           name: computedName,
-        });
+        };
+
+        const res = await axios.put(`/api/teacher/update-class/${classForm.id}`, payload);
+
+        if (res.data.success) {
+          const updated = classes.map((cls) =>
+            cls.id === classForm.id
+              ? {
+                  ...cls,
+                  subjectName: classForm.subject,
+                  name: computedName,
+                  teacherId,
+                  roomNumber: classForm.room,
+                  section: classForm.section,
+                  gradeLevel: classForm.gradeLevel,
+                  days: daysString,
+                  time_start: start24,
+                  time_end: end24,
+                  time: `${start12} - ${end12}`,
+                }
+              : cls
+          );
+          setClasses(updated);
+          try {
+            localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(updated));
+          } catch (e) {}
+          await Swal.fire({ icon: "success", title: "Updated", text: "Class updated successfully!", timer: 1400, showConfirmButton: false });
+        } else {
+          throw new Error(res.data.message || "Update failed");
+        }
+      } else {
+        const payload = {
+          teacherId,
+          subjectName: classForm.subject,
+          roomNumber: classForm.room,
+          section: classForm.section,
+          gradeLevel: classForm.gradeLevel,
+          days: daysString,
+          time_start: start24,
+          time_end: end24,
+          time_display: `${start12} - ${end12}`,
+          name: computedName,
+        };
+
+        const res = await axios.post("/api/teacher/add-class", payload);
 
         if (res.data.success) {
           const newCls = {
@@ -315,24 +286,16 @@ export default function useClasses(teacherId) {
             section: classForm.section,
             gradeLevel: classForm.gradeLevel,
             days: daysString,
-            time_start: startTime12,
-            time_end: endTime12,
+            time_start: start24,
+            time_end: end24,
+            time: `${start12} - ${end12}`,
           };
-          setClasses((prev) => [...prev, newCls]);
-
+          const updated = [...classes, newCls];
+          setClasses(updated);
           try {
-            localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify([...classes, newCls]));
-          } catch (e) {
-            // ignore
-          }
-
-          await Swal.fire({
-            icon: "success",
-            title: "Added",
-            text: "Class added successfully!",
-            timer: 1400,
-            showConfirmButton: false,
-          });
+            localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(updated));
+          } catch (e) {}
+          await Swal.fire({ icon: "success", title: "Added", text: "Class added successfully!", timer: 1400, showConfirmButton: false });
         } else {
           throw new Error(res.data.message || "Add failed");
         }
@@ -372,30 +335,16 @@ export default function useClasses(teacherId) {
     if (!result.isConfirmed) return;
 
     try {
-      const res = await axios.delete(
-        `/api/teacher/delete-class/${classId}?teacherId=${teacherId}`
-      );      
+      const res = await axios.delete(`/api/teacher/delete-class/${classId}?teacherId=${teacherId}`);
       if (res.data.success) {
-        setClasses((prev) => prev.filter((cls) => cls.id !== classId));
-        // update cache
+        const filtered = classes.filter((c) => c.id !== classId);
+        setClasses(filtered);
         try {
-          localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(classes.filter((c) => c.id !== classId)));
-        } catch (e) {
-          // ignore
-        }
-        await Swal.fire({
-          icon: "success",
-          title: "Deleted",
-          text: "Class deleted successfully!",
-          timer: 1400,
-          showConfirmButton: false,
-        });
+          localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(filtered));
+        } catch (e) {}
+        await Swal.fire({ icon: "success", title: "Deleted", text: "Class deleted successfully!", timer: 1400, showConfirmButton: false });
       } else {
-        await Swal.fire({
-          icon: "error",
-          title: "Failed",
-          text: res.data.message || "Failed to delete class.",
-        });
+        await Swal.fire({ icon: "error", title: "Failed", text: res.data.message || "Failed to delete class." });
       }
     } catch (err) {
       console.error(err);
@@ -404,13 +353,24 @@ export default function useClasses(teacherId) {
   };
 
   const handleEditClass = (cls) => {
-    let start12 = cls.time_start || "";
-    let end12 = cls.time_end || "";
+    // cls may be legacy (time field) or modern (time_start/time_end in "HH:mm")
+    let start24 = "";
+    let end24 = "";
 
-    if ((!start12 || !end12) && cls.time) {
+    if (cls.time_start && /^\d{1,2}:\d{2}$/.test(String(cls.time_start).trim())) {
+      start24 = String(cls.time_start).trim().padStart(5, "0");
+    } else if (cls.time) {
       const [a, b] = String(cls.time).split(" - ").map((s) => s?.trim());
-      start12 = start12 || a || "";
-      end12 = end12 || b || "";
+      start24 = convertTo24Hour(a || "");
+      end24 = convertTo24Hour(b || "");
+    } else if (cls.time_start) {
+      start24 = convertTo24Hour(String(cls.time_start));
+    }
+
+    if (cls.time_end && /^\d{1,2}:\d{2}$/.test(String(cls.time_end).trim())) {
+      end24 = end24 || String(cls.time_end).trim().padStart(5, "0");
+    } else if (!end24 && cls.time_end) {
+      end24 = convertTo24Hour(String(cls.time_end));
     }
 
     setClassForm({
@@ -420,8 +380,8 @@ export default function useClasses(teacherId) {
       section: cls.section || "",
       gradeLevel: cls.gradeLevel || "",
       days: (cls.days || "").split(", ").filter(Boolean),
-      startTime: convertTo24Hour(start12),
-      endTime: convertTo24Hour(end12),
+      startTime: start24 || "",
+      endTime: end24 || "",
     });
 
     setIsEditMode(true);
