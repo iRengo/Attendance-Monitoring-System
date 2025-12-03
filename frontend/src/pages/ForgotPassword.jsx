@@ -77,7 +77,7 @@ export default function ForgotPassword() {
     try {
       setSubmitting(true);
       const API_BASE = getApiBase(); // runtime base, '' means same-origin
-      const sendResetEmailUrl = `${API_BASE}/api/password/send-reset-email`;
+      const sendResetEmailUrl = `${API_BASE}/password/send-reset-email`;
 
       if (role === "student") {
         if (!studentId.trim()) {
