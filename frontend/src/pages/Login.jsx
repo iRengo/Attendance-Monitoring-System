@@ -333,9 +333,13 @@ export default function Login() {
                       />
                     </div>
 
-                    <p className="text-sm text-[#5F75AF] text-right cursor-pointer">
-                      Forgot password?
-                    </p>
+                    <p
+  className="text-sm text-[#5F75AF] text-right cursor-pointer"
+  onClick={() => navigate("/forgot-password")}
+>
+  Forgot password?
+</p>
+
 
                     <button
                       type="submit"

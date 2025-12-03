@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import Swal from "sweetalert2";
 import "react-toastify/dist/ReactToastify.css";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 import StudentDashboard from "./pages/student/studentDashboard";
 import StudentAttendance from "./pages/student/studentAttendance";
@@ -111,6 +113,8 @@ function App() {
       <Routes>
         {/* Public route */}
         <Route path="/" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword/>} />
 
         {/* Student routes */}
         <Route

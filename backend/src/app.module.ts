@@ -8,6 +8,7 @@ import { AdminModule } from './admin/admin.module';
 import { TeacherModule } from './teacher/teacher.module';
 import { StudentModule } from './student/student.module'; // ✅ Import StudentModule
 import { FilesModule } from "./files/files.module";
+import { PasswordResetModule } from './password-reset/dto/password-reset.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { FilesModule } from "./files/files.module";
     TeacherModule,
     StudentModule, // ✅ Add here so Nest registers /student routes
     FilesModule,
+    PasswordResetModule,
   ],
   controllers: [AppController],
   providers: [AppService],
