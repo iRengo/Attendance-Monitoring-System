@@ -13,6 +13,13 @@ import peoples from "../assets/images/peoples.png";
 import anniversary29 from "../assets/images/29y.png";
 import announcementBg from "../assets/images/announcements.png";
 
+function getApiBase() {
+  const raw = import.meta.env.VITE_API_URL || "";
+  const s = raw.trim();
+  if (!s) return "";
+  return s.replace(/\/$/, "");
+}
+
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -136,9 +143,9 @@ export default function ResetPassword() {
     }
     setSubmitting(true);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL;
-      if (!apiUrl) throw new Error("No server endpoint configured.");
-      const res = await axios.post(`${apiUrl}/password/complete-reset`, { token, newPassword: password });
+      const apiBase = getApiBase();
+      const completeUrl = apiBase ? `${apiBase}/password/complete-reset` : "/api/password/complete-reset";
+      const res = await axios.post(completeUrl, { token, newPassword: password });
       if (!res.data?.success) throw new Error(res.data?.message || "Reset failed");
       toast.success(res.data.message || "Password reset successfully");
       try {
