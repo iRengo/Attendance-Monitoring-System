@@ -2,28 +2,12 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { convertTo12Hour, convertTo24Hour } from "../../utils/time";
 import Swal from "sweetalert2";
-import { Timestamp } from "firebase/firestore";
 
 /**
- * Convert "HH:mm" string to Firestore Timestamp using a fixed UTC date
+ * Resilient useClasses hook
+ * - store/send timezone-agnostic 24-hour "HH:mm" strings (no Date objects)
+ * - display formatted 12-hour strings using convertTo12Hour()
  */
-function timeToTimestamp(time24) {
-  if (!time24) return null;
-  const [h, m] = time24.split(":").map(Number);
-  const date = new Date(Date.UTC(1970, 0, 1, h, m));
-  return Timestamp.fromDate(date);
-}
-
-/**
- * Convert Firestore Timestamp to "HH:mm" string
- */
-function timestampToTime(ts) {
-  if (!ts) return "";
-  const date = ts.toDate();
-  const h = date.getUTCHours().toString().padStart(2, "0");
-  const m = date.getUTCMinutes().toString().padStart(2, "0");
-  return `${h}:${m}`;
-}
 
 const CLASSES_CACHE_KEY = "teacher_classes_cache_v1";
 const COUNTS_CACHE_KEY = "teacher_class_counts_cache_v1";
@@ -55,17 +39,25 @@ export default function useClasses(teacherId) {
         const res = await axios.get("/api/teacher/classes", { params: { teacherId } });
         if (res.data.success) {
           const cleaned = (res.data.classes || []).map((cls) => {
-            // Convert Firestore Timestamp to HH:mm strings for UI
-            const timeStart = cls.time_start && cls.time_start.seconds
-              ? timestampToTime(cls.time_start)
-              : cls.time_start?.trim() || "";
-            const timeEnd = cls.time_end && cls.time_end.seconds
-              ? timestampToTime(cls.time_end)
-              : cls.time_end?.trim() || "";
+            // IMPORTANT: do NOT coerce Firestore Timestamp objects to strings with String(...)
+            // Keep timestamp objects as-is so formatTimeValue can handle them.
+            const timeStart = typeof cls.time_start === "string"
+              ? cls.time_start.trim()
+              : cls.time_start || ""; // leave object (timestamp) unchanged
+            const timeEnd = typeof cls.time_end === "string"
+              ? cls.time_end.trim()
+              : cls.time_end || "";
 
             let displayTime = cls.time || "";
             if (!displayTime && timeStart && timeEnd) {
-              displayTime = `${convertTo12Hour(timeStart)} - ${convertTo12Hour(timeEnd)}`;
+              // convert only if values are 24-hour strings; if they're timestamp objects,
+              // convertTo12Hour will be used later from the UI layer after extracting hours/minutes.
+              if (typeof timeStart === "string" && typeof timeEnd === "string") {
+                displayTime = `${convertTo12Hour(timeStart)} - ${convertTo12Hour(timeEnd)}`;
+              } else {
+                // leave displayTime empty and let the UI handle timestamp -> display conversion
+                displayTime = "";
+              }
             }
 
             return {
@@ -89,6 +81,7 @@ export default function useClasses(teacherId) {
         }
       } catch (err) {
         console.error("Error fetching classes:", err);
+        // fall back to cache
         try {
           const cached = localStorage.getItem(CLASSES_CACHE_KEY);
           if (cached) {
@@ -113,7 +106,9 @@ export default function useClasses(teacherId) {
             toast: true,
             position: "top-end",
           });
-        } catch (e) {}
+        } catch (e) {
+          // ignore Swal errors
+        }
       }
     };
 
@@ -123,7 +118,7 @@ export default function useClasses(teacherId) {
     };
   }, [teacherId]);
 
-  // Fetch student counts
+  // Fetch student counts (batched preferred)
   useEffect(() => {
     let cancelled = false;
     if (!teacherId || classes.length === 0) return;
@@ -131,9 +126,10 @@ export default function useClasses(teacherId) {
     const fetchCounts = async () => {
       try {
         const classIds = classes.map((c) => c.id);
+        // preferred batch endpoint
         try {
           const res = await axios.post("/api/teacher/class-student-counts", { teacherId, classIds });
-          if (res.data?.success && res.data.counts) {
+          if (res.data && res.data.success && res.data.counts) {
             if (!cancelled) {
               setStudentCounts(res.data.counts);
               try {
@@ -146,18 +142,20 @@ export default function useClasses(teacherId) {
           console.warn("Batch counts endpoint failed, falling back.", err);
         }
 
-        // fallback per-class
+        // fallback: per-class requests with concurrency
         const results = {};
         const concurrency = 4;
         const ids = classIds.slice();
+
         const worker = async () => {
           while (ids.length > 0 && !cancelled) {
             const id = ids.shift();
             try {
               const res = await axios.get("/api/teacher/class-students", { params: { teacherId, classId: id } });
-              results[id] = res.data?.success ? (res.data.students || []).length : 0;
+              results[id] = res.data && res.data.success ? (res.data.students || []).length : 0;
             } catch (err) {
               console.warn("Failed fetching students for", id, err);
+              // try cached counts
               const cached = localStorage.getItem(COUNTS_CACHE_KEY);
               if (cached) {
                 try {
@@ -172,6 +170,7 @@ export default function useClasses(teacherId) {
             }
           }
         };
+
         await Promise.all(new Array(concurrency).fill(0).map(() => worker()));
         if (!cancelled) {
           setStudentCounts(results);
@@ -190,7 +189,7 @@ export default function useClasses(teacherId) {
     };
   }, [classes, teacherId]);
 
-  // Save or update class
+  // Save or update class — IMPORTANT: send 24-hour "HH:mm" strings to backend
   const handleSaveClass = async () => {
     if (
       !classForm.subject.trim() ||
@@ -205,6 +204,7 @@ export default function useClasses(teacherId) {
       return;
     }
 
+    // Normalize to 24-hour "HH:mm" (timezone-agnostic)
     const start24 = convertTo24Hour(classForm.startTime);
     const end24 = convertTo24Hour(classForm.endTime);
     const start12 = convertTo12Hour(start24);
@@ -216,21 +216,24 @@ export default function useClasses(teacherId) {
     setLoading(true);
 
     try {
-      const payload = {
-        teacherId,
-        subjectName: classForm.subject,
-        roomNumber: classForm.room,
-        section: classForm.section,
-        gradeLevel: classForm.gradeLevel,
-        days: daysString,
-        time_start: timeToTimestamp(start24),
-        time_end: timeToTimestamp(end24),
-        time_display: `${start12} - ${end12}`,
-        name: computedName,
-      };
-
       if (isEditMode) {
+        const payload = {
+          teacherId,
+          subjectName: classForm.subject,
+          roomNumber: classForm.room,
+          section: classForm.section,
+          gradeLevel: classForm.gradeLevel,
+          days: daysString,
+          // send timezone-agnostic 24-hour values
+          time_start: start24,
+          time_end: end24,
+          // optional display string for legacy clients
+          time_display: `${start12} - ${end12}`,
+          name: computedName,
+        };
+
         const res = await axios.put(`/api/teacher/update-class/${classForm.id}`, payload);
+
         if (res.data.success) {
           const updated = classes.map((cls) =>
             cls.id === classForm.id
@@ -258,7 +261,21 @@ export default function useClasses(teacherId) {
           throw new Error(res.data.message || "Update failed");
         }
       } else {
+        const payload = {
+          teacherId,
+          subjectName: classForm.subject,
+          roomNumber: classForm.room,
+          section: classForm.section,
+          gradeLevel: classForm.gradeLevel,
+          days: daysString,
+          time_start: start24,
+          time_end: end24,
+          time_display: `${start12} - ${end12}`,
+          name: computedName,
+        };
+
         const res = await axios.post("/api/teacher/add-class", payload);
+
         if (res.data.success) {
           const newCls = {
             id: res.data.id,
@@ -336,19 +353,24 @@ export default function useClasses(teacherId) {
   };
 
   const handleEditClass = (cls) => {
+    // cls may be legacy (time field) or modern (time_start/time_end in "HH:mm")
     let start24 = "";
     let end24 = "";
 
     if (cls.time_start && /^\d{1,2}:\d{2}$/.test(String(cls.time_start).trim())) {
       start24 = String(cls.time_start).trim().padStart(5, "0");
-    } else if (cls.time_start && cls.time_start.seconds) {
-      start24 = timestampToTime(cls.time_start);
+    } else if (cls.time) {
+      const [a, b] = String(cls.time).split(" - ").map((s) => s?.trim());
+      start24 = convertTo24Hour(a || "");
+      end24 = convertTo24Hour(b || "");
+    } else if (cls.time_start) {
+      start24 = convertTo24Hour(String(cls.time_start));
     }
 
     if (cls.time_end && /^\d{1,2}:\d{2}$/.test(String(cls.time_end).trim())) {
-      end24 = String(cls.time_end).trim().padStart(5, "0");
-    } else if (cls.time_end && cls.time_end.seconds) {
-      end24 = timestampToTime(cls.time_end);
+      end24 = end24 || String(cls.time_end).trim().padStart(5, "0");
+    } else if (!end24 && cls.time_end) {
+      end24 = convertTo24Hour(String(cls.time_end));
     }
 
     setClassForm({
