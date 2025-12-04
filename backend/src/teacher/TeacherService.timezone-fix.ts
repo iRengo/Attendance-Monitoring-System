@@ -1,30 +1,8 @@
 import { DateTime } from "luxon";
 import { Timestamp } from "firebase-admin/firestore";
 
-/**
- * Timezone-aware helpers for TeacherService.
- *
- * Usage:
- * 1) npm install luxon
- * 2) Put this file next to your teacher.service.ts (or in a shared utils folder).
- * 3) In teacher.service.ts import:
- *      import { parseTimeToTimestampZone, buildClassDocWithZone } from './TeacherService.timezone-fix';
- *    Then use parseTimeToTimestampZone when converting incoming time strings to Firestore Timestamps,
- *    or call buildClassDocWithZone(data, zone) instead of the previous buildClassDoc.
- *
- * Notes:
- * - Default zone is "Asia/Manila". You can override by passing a different zone or by setting
- *   process.env.SCHOOL_TIMEZONE and passing it through from your service constructor.
- * - If you prefer to keep storing only "HH:mm" strings (recommended), skip timestamp conversion
- *   and store the string instead. This helper is for the case you need absolute instants.
- */
-
 /** Parse a time string into a Firestore Timestamp anchored to a specific timezone.
- *  - timeStr: accepts "HH:mm" (24h) or "h:mm AM/PM" (12h) (also tries some ISO parsing)
- *  - dateStr: optional "YYYY-MM-DD" to anchor the time to a specific date; if omitted uses "today" in the zone.
- *  - zone: IANA timezone string (default "Asia/Manila")
- *
- *  Returns firebase-admin Timestamp or null on failure.
+ *  Accepts "HH:mm" or "h:mm AM/PM" or ISO datetimes. Defaults to Asia/Manila.
  */
 export function parseTimeToTimestampZone(
   timeStr?: string,
@@ -41,11 +19,10 @@ export function parseTimeToTimestampZone(
     dt = DateTime.fromFormat(`${anchorDate} ${timeStr}`, "yyyy-MM-dd h:mm a", { zone });
   }
 
-  // Fallback: try parsing the time portion or an ISO string
+  // Fallback: try parsing ISO/time portion
   if (!dt.isValid) {
     const maybeTime = DateTime.fromISO(timeStr, { zone });
     if (maybeTime.isValid) {
-      // If timeStr is a time-only ISO (rare), anchor to anchorDate with its hour/minute
       dt = DateTime.fromObject(
         {
           year: Number(anchorDate.slice(0, 4)),
@@ -63,12 +40,6 @@ export function parseTimeToTimestampZone(
   return Timestamp.fromDate(dt.toJSDate());
 }
 
-/**
- * Build a class document object similar to your existing buildClassDoc,
- * but producing time_start/time_end as Timestamps anchored to the provided zone.
- *
- * If you prefer storing the schedule as "HH:mm", don't use this—store strings instead.
- */
 export function buildClassDocWithZone(data: any, zone = process.env.SCHOOL_TIMEZONE ?? "Asia/Manila") {
   const subjectName = (data.subjectName ?? data.subject ?? "").trim();
   const section = (data.section ?? "").trim();
