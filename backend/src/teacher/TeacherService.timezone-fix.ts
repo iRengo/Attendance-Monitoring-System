@@ -10,7 +10,7 @@ export function parseTimeToTimestampZone(
 
   const anchorDate = dateStr ?? DateTime.now().setZone(zone).toFormat("yyyy-MM-dd");
 
-  // Try multiple formats
+  // Try multiple time formats
   const formats = ["H:mm", "HH:mm", "h:mm a", "hh:mm a"];
   let dt: DateTime | null = null;
 
@@ -42,10 +42,14 @@ export function parseTimeToTimestampZone(
 
   if (!dt || !dt.isValid) return null;
 
-  return Timestamp.fromDate(dt.toUTC().toJSDate());
+  // ✅ Store the time directly without converting to UTC
+  return Timestamp.fromDate(dt.toJSDate());
 }
 
-export function buildClassDocWithZone(data: any, zone = process.env.SCHOOL_TIMEZONE ?? "Asia/Manila") {
+export function buildClassDocWithZone(
+  data: any,
+  zone = process.env.SCHOOL_TIMEZONE ?? "Asia/Manila"
+) {
   const subjectName = (data.subjectName ?? data.subject ?? "").trim();
   const section = (data.section ?? "").trim();
   const gradeLevel = (data.gradeLevel ?? "").toString().trim();
