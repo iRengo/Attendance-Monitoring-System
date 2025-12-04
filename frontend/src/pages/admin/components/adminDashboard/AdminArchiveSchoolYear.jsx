@@ -122,8 +122,6 @@ export default function AdminArchiveSchoolYear({ adminEmail }) {
 
       setLoading(true);
 
-      // ❌ REMOVED backupFirestore()
-
       await Swal.fire('Resetting attendance...', '', 'info');
       await archiveAndResetData();
 
