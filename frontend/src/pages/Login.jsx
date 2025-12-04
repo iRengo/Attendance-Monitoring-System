@@ -1,5 +1,17 @@
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc, collection, getDocs, onSnapshot } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  collection,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+  query,
+  where,
+  limit,
+  getDocs as getDocsQuery,
+} from "firebase/firestore";
 import { auth, db } from "../firebase";
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -54,7 +66,121 @@ export default function Login() {
     return () => unsub();
   }, []);
 
-  // LOGIN with maintenance & role checks
+  // Helper: login attempts tracking
+  const ATTEMPTS_COLLECTION = "login_attempts";
+  const LOCK_THRESHOLD = 3; // attempts
+  const LOCK_DURATION_MS = 30 * 60 * 1000; // 30 minutes
+
+  // UI state for attempts display (ONLY shown after a sign-in attempt)
+  const [attemptsLeft, setAttemptsLeft] = useState(null);
+  const [showAttempts, setShowAttempts] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockedUntilDisplay, setLockedUntilDisplay] = useState(null);
+  const [lockedPersonalEmail, setLockedPersonalEmail] = useState(null);
+
+  // read attempts doc and return data (or null)
+  const getAttemptsDoc = async (emailLower) => {
+    try {
+      const ref = doc(db, ATTEMPTS_COLLECTION, emailLower);
+      const snap = await getDoc(ref);
+      return snap.exists() ? snap.data() : null;
+    } catch (e) {
+      console.error("Failed to read attempts doc:", e);
+      return null;
+    }
+  };
+
+  // helper: try to find personal_email for a given school_email
+  const fetchPersonalEmailForSchoolEmail = async (schoolEmail) => {
+    try {
+      const studentsQ = query(collection(db, "students"), where("school_email", "==", schoolEmail), limit(1));
+      const teachersQ = query(collection(db, "teachers"), where("school_email", "==", schoolEmail), limit(1));
+
+      const [sSnap, tSnap] = await Promise.all([getDocsQuery(studentsQ), getDocsQuery(teachersQ)]);
+
+      if (!sSnap.empty) {
+        const d = sSnap.docs[0].data();
+        return d.personal_email || d.personalEmail || null;
+      }
+      if (!tSnap.empty) {
+        const d = tSnap.docs[0].data();
+        return d.personal_email || d.personalEmail || null;
+      }
+      return null;
+    } catch (err) {
+      console.error("Failed to fetch personal email:", err);
+      return null;
+    }
+  };
+
+  // record a failed attempt: increments count, sets lock when threshold reached
+  // returns { locked: boolean, remaining: number, lockedUntil?: number }
+  const recordFailedAttempt = async (emailLower) => {
+    try {
+      const ref = doc(db, ATTEMPTS_COLLECTION, emailLower);
+      const snap = await getDoc(ref);
+      const now = Date.now();
+      let failedCount = 1;
+      let lockedUntil = null;
+
+      if (snap.exists()) {
+        const d = snap.data();
+        // If already locked, return locked info
+        if (d?.lockedUntil && Number(d.lockedUntil) > now) {
+          return { locked: true, remaining: 0, lockedUntil: Number(d.lockedUntil) };
+        }
+        failedCount = (Number(d?.failedCount || 0) || 0) + 1;
+      }
+
+      if (failedCount >= LOCK_THRESHOLD) {
+        lockedUntil = now + LOCK_DURATION_MS;
+        // reset failedCount after locking (optional)
+        failedCount = 0;
+      }
+
+      await setDoc(
+        ref,
+        {
+          failedCount,
+          lastFailedAt: now,
+          lockedUntil: lockedUntil ?? null,
+        },
+        { merge: true }
+      );
+
+      if (lockedUntil) {
+        return { locked: true, remaining: 0, lockedUntil };
+      }
+      // remaining attempts = threshold - failedCount
+      const remaining = Math.max(LOCK_THRESHOLD - failedCount, 0);
+      return { locked: false, remaining };
+    } catch (e) {
+      console.error("Failed to record failed attempt:", e);
+      return { locked: false, remaining: null };
+    }
+  };
+
+  // clear attempts on successful login
+  const clearAttempts = async (emailLower) => {
+    try {
+      const ref = doc(db, ATTEMPTS_COLLECTION, emailLower);
+      await deleteDoc(ref);
+    } catch (e) {
+      console.error("Failed to clear attempts:", e);
+      try {
+        const ref = doc(db, ATTEMPTS_COLLECTION, emailLower);
+        await setDoc(
+          ref,
+          { failedCount: 0, lastFailedAt: null, lockedUntil: null },
+          { merge: true }
+        );
+      } catch (err) {
+        console.error("Failed fallback clearAttempts:", err);
+      }
+    }
+  };
+
+  // LOGIN with maintenance & role checks + lock logic
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!captchaValue) {
@@ -62,8 +188,38 @@ export default function Login() {
       return;
     }
     setLoading(true);
+    setShowAttempts(false); // hide previous attempt info until we process this click
+    setAttemptsLeft(null);
+    setIsLocked(false);
+    setLockedPersonalEmail(null);
+    setLockedUntilDisplay(null);
+
     try {
       const emailTrimmed = email.trim().toLowerCase();
+
+      // Check lock status BEFORE attempting sign-in
+      const attempts = await getAttemptsDoc(emailTrimmed);
+      const now = Date.now();
+      if (attempts?.lockedUntil && Number(attempts.lockedUntil) > now) {
+        const remainingMs = Number(attempts.lockedUntil) - now;
+        const minutes = Math.ceil(remainingMs / 60000);
+        const personal = await fetchPersonalEmailForSchoolEmail(emailTrimmed);
+        if (personal) {
+          setLockedPersonalEmail(personal);
+          toast.error(
+            `Account locked due to multiple failed login attempts. Try again in ${minutes} minute(s).`
+          );
+        } else {
+          toast.error(
+            `Account locked due to multiple failed login attempts. Try again in ${minutes} minute(s).`
+          );
+        }
+        setIsLocked(true);
+        setLockedUntilDisplay(`${Math.ceil(remainingMs / 60000)} minute(s)`);
+        setLoading(false);
+        return;
+      }
+
       const maintenanceDoc = await getDoc(doc(db, "system_settings", "maintenance_mode"));
       const isMaintenance = maintenanceDoc.exists() ? maintenanceDoc.data().enabled : false;
 
@@ -84,7 +240,30 @@ export default function Login() {
         (doc) => doc.data().email === emailTrimmed
       );
       if (adminDoc) {
-        await signInWithEmailAndPassword(auth, emailTrimmed, password);
+        try {
+          await signInWithEmailAndPassword(auth, emailTrimmed, password);
+        } catch (err) {
+          // sign-in failed -> record attempt and surface error + update UI
+          const res = await recordFailedAttempt(emailTrimmed);
+          setShowAttempts(true);
+          if (res.locked) {
+            const personal = await fetchPersonalEmailForSchoolEmail(emailTrimmed);
+            if (personal) setLockedPersonalEmail(personal);
+            setIsLocked(true);
+            setLockedUntilDisplay(`${Math.ceil((res.lockedUntil - Date.now()) / 60000)} minute(s)`);
+            setAttemptsLeft(0);
+            toast.error(
+              `Account locked due to multiple failed login attempts. Personal email on file: ${personal ?? "N/A"}`
+            );
+          } else {
+            setAttemptsLeft(res.remaining);
+            toast.error(`Invalid credentials. ${res.remaining} attempt(s) left before lock.`);
+          }
+          throw err;
+        }
+        // success -> clear attempts
+        await clearAttempts(emailTrimmed);
+
         localStorage.setItem(
           "user",
           JSON.stringify({
@@ -97,11 +276,32 @@ export default function Login() {
         return;
       }
 
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        emailTrimmed,
-        password
-      );
+      // Not admin -> normal user sign-in
+      let userCredential;
+      try {
+        userCredential = await signInWithEmailAndPassword(auth, emailTrimmed, password);
+      } catch (err) {
+        // failed sign-in -> record attempt and show error + update UI
+        const res = await recordFailedAttempt(emailTrimmed);
+        setShowAttempts(true);
+        if (res.locked) {
+          const personal = await fetchPersonalEmailForSchoolEmail(emailTrimmed);
+          if (personal) setLockedPersonalEmail(personal);
+          setIsLocked(true);
+          setLockedUntilDisplay(`${Math.ceil((res.lockedUntil - Date.now()) / 60000)} minute(s)`);
+          setAttemptsLeft(0);
+          toast.error(
+            `Account locked due to multiple failed login attempts. Personal email on file: ${personal ?? "N/A"}`
+          );
+        } else {
+          setAttemptsLeft(res.remaining);
+          toast.error(`Invalid credentials. ${res.remaining} attempt(s) left before lock.`);
+        }
+        throw err;
+      }
+
+      // successful auth -> clear attempts
+      await clearAttempts(emailTrimmed);
 
       const collections = ["students", "teachers"];
       let userDoc = null;
@@ -141,7 +341,16 @@ export default function Login() {
       }
     } catch (error) {
       console.error(error);
-      toast.error("Login failed: " + (error?.message || error));
+      // Provide clearer message for wrong password vs other errors when possible
+      const msg = String(error?.message || error).toLowerCase();
+      if (msg.includes("wrong-password") || msg.includes("invalid")) {
+        // Already handled attempts and toasts above; show fallback
+        toast.error("Invalid credentials. Please try again.");
+      } else if (msg.includes("user-not-found")) {
+        toast.error("Account not found. Please check your email.");
+      } else {
+        toast.error("Login failed: " + (error?.message || error));
+      }
     } finally {
       setLoading(false);
     }
@@ -254,30 +463,6 @@ export default function Login() {
                 </div>
               </div>
 
-            {/* Mobile swipe handle below header (visual only) */}
-              <div className="md:hidden w-full">
-                <div className="w-full px-6 -mt-2">
-                  <div className="h-12 flex items-center justify-center relative">
-                    <div className="w-44 h-8 bg-gradient-to-b from-[#1f5b86] to-[#2b79a6] rounded-full flex items-center justify-center text-white text-xs font-semibold shadow-inner">
-                      Announcements
-                    </div>
-
-                    {/* Animated swipe indicator (chevrons) pointing down */}
-                    <motion.div
-                      className="absolute -bottom-0 flex flex-col items-center gap-0 pointer-events-none"
-                      aria-hidden
-                      animate={{ y: [0, 6, 0] }}
-                      transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
-                    >
-                      <svg className="w-4 h-4 text-white/90" viewBox="0 0 24 24" fill="none">
-                        <path d="M6 9l6 6 6-6" stroke="black" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-
-                    </motion.div>
-                  </div>
-                </div>
-              </div>
-
               {/* LOGIN FORM centered */}
               <div className="flex-1 flex items-start justify-center py-10 md:py-40">
                 <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-sm shadow-lg mx-6">
@@ -326,6 +511,27 @@ export default function Login() {
                       </span>
                     </div>
 
+                    {/* Attempts / Locked UI (shows remaining after clicking Sign In) */}
+                    <div className="text-right text-sm text-red-600">
+                      {isLocked ? (
+                        <div>
+                          Account locked. Try again in: {lockedUntilDisplay}
+                          {lockedPersonalEmail ? (
+                            <div className="text-xs text-red-400 mt-1">
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : showAttempts && attemptsLeft !== null ? (
+                        attemptsLeft > 0 ? (
+                          <div className="text-sm text-yellow-700">
+                            {attemptsLeft} attempt{attemptsLeft > 1 ? "s" : ""} left
+                          </div>
+                        ) : (
+                          <div className="text-sm text-yellow-700">No attempts left — next failed try will lock the account</div>
+                        )
+                      ) : null}
+                    </div>
+
                     <div className="flex justify-center">
                       <ReCAPTCHA
                         sitekey="6LdTcQ8sAAAAAEX8gXXKeEvkAKft0STWWZo3jZqK"
@@ -334,16 +540,15 @@ export default function Login() {
                     </div>
 
                     <p
-  className="text-sm text-[#5F75AF] text-right cursor-pointer"
-  onClick={() => navigate("/forgot-password")}
->
-  Forgot password?
-</p>
-
+                      className="text-sm text-[#5F75AF] text-right cursor-pointer"
+                      onClick={() => navigate("/forgot-password")}
+                    >
+                      Forgot password?
+                    </p>
 
                     <button
                       type="submit"
-                      disabled={loading}
+                      disabled={loading || isLocked}
                       className="w-full py-2 rounded text-white bg-[#5F75AF] disabled:opacity-50"
                     >
                       {loading ? "Signing in..." : "Sign In"}

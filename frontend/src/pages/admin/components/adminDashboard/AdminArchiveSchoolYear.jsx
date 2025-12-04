@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Swal from 'sweetalert2';
 import { auth, db } from '../../../../firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { collection, getDocs, doc, writeBatch, addDoc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, writeBatch } from 'firebase/firestore';
 
 export default function AdminArchiveSchoolYear({ adminEmail }) {
   const [loading, setLoading] = useState(false);
@@ -23,12 +23,10 @@ export default function AdminArchiveSchoolYear({ adminEmail }) {
     // Students
     const studentsSnapshot = await getDocs(collection(db, 'students'));
     for (const docSnap of studentsSnapshot.docs) {
-      const docRef = doc(db, 'students', docSnap.id);
+      const attendanceSnap = await getDocs(
+        collection(db, 'students', docSnap.id, 'attendance')
+      );
 
-      // ❌ REMOVED schoolYearStatus update
-
-      // Reset student attendance subcollection
-      const attendanceSnap = await getDocs(collection(db, 'students', docSnap.id, 'attendance'));
       const batch = writeBatch(db);
       attendanceSnap.forEach(snap => {
         batch.delete(doc(db, 'students', docSnap.id, 'attendance', snap.id));
@@ -39,12 +37,10 @@ export default function AdminArchiveSchoolYear({ adminEmail }) {
     // Teachers
     const teachersSnapshot = await getDocs(collection(db, 'teachers'));
     for (const docSnap of teachersSnapshot.docs) {
-      const docRef = doc(db, 'teachers', docSnap.id);
+      const attendanceSnap = await getDocs(
+        collection(db, 'teachers', docSnap.id, 'attendance')
+      );
 
-      // ❌ REMOVED schoolYearStatus update
-
-      // Reset teacher attendance subcollection
-      const attendanceSnap = await getDocs(collection(db, 'teachers', docSnap.id, 'attendance'));
       const batch = writeBatch(db);
       attendanceSnap.forEach(snap => {
         batch.delete(doc(db, 'teachers', docSnap.id, 'attendance', snap.id));
@@ -52,18 +48,7 @@ export default function AdminArchiveSchoolYear({ adminEmail }) {
       await batch.commit();
     }
 
-    // Classes
-    const classesSnapshot = await getDocs(collection(db, 'classes'));
-    const classesBatch = writeBatch(db);
-    classesSnapshot.forEach(docSnap => {
-      const docRef = doc(db, 'classes', docSnap.id);
-
-      // ❌ REMOVED schoolYearStatus update
-      // Nothing to update now
-    });
-    await classesBatch.commit();
-
-    // DELETE all attendance_sessions documents
+    // Delete attendance_sessions
     const attendanceSessionsSnap = await getDocs(collection(db, 'attendance_sessions'));
     const attBatch = writeBatch(db);
     attendanceSessionsSnap.forEach(docSnap => {
@@ -71,25 +56,11 @@ export default function AdminArchiveSchoolYear({ adminEmail }) {
     });
     await attBatch.commit();
 
-    // Announcements
+    // Announcements — no change
     const announcementSnap = await getDocs(collection(db, 'announcements'));
     const annBatch = writeBatch(db);
-    announcementSnap.forEach(docSnap => {
-      const docRef = doc(db, 'announcements', docSnap.id);
-
-      // ❌ REMOVED schoolYearStatus update
-      // No update needed
-    });
+    announcementSnap.forEach(docSnap => {});
     await annBatch.commit();
-  };
-
-  // Create new school year
-  const createNewSchoolYear = async (yearName) => {
-    await addDoc(collection(db, 'schoolYears'), {
-      name: yearName,
-      status: 'current',
-      createdAt: new Date(),
-    });
   };
 
   const handleArchive = async () => {
@@ -112,7 +83,7 @@ export default function AdminArchiveSchoolYear({ adminEmail }) {
 
       const confirmResult = await Swal.fire({
         title: 'Are you sure?',
-        text: 'All current school year attendance records will be reset!',
+        text: 'All current school year attendance records will be RESET!',
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'Yes, reset attendance',
@@ -125,21 +96,10 @@ export default function AdminArchiveSchoolYear({ adminEmail }) {
       await Swal.fire('Resetting attendance...', '', 'info');
       await archiveAndResetData();
 
-      const { value: newYearName } = await Swal.fire({
-        title: 'Enter new school year name',
-        input: 'text',
-        inputPlaceholder: 'e.g. 2025-2026',
-        showCancelButton: true,
-      });
-
-      if (!newYearName) return;
-
-      await createNewSchoolYear(newYearName);
-
-      Swal.fire('Success', 'Attendance reset and new school year created!', 'success');
+      Swal.fire('Success', 'Attendance has been reset successfully!', 'success');
     } catch (error) {
       console.error(error);
-      Swal.fire('Error', 'Something went wrong. Check console for details.', 'error');
+      Swal.fire('Error', 'Something went wrong.', 'error');
     } finally {
       setLoading(false);
     }
@@ -147,14 +107,13 @@ export default function AdminArchiveSchoolYear({ adminEmail }) {
 
   return (
     <div>
-      {/* Archive Button */}
-<button
-  onClick={handleArchive}
-  disabled={loading}
-  className="w-full px-4 py-3 bg-red-600 text-white rounded hover:bg-red-700"
->
-  {loading ? "Processing..." : "Reset School Year Attendance"}
-</button>
+      <button
+        onClick={handleArchive}
+        disabled={loading}
+        className="w-full px-4 py-3 bg-red-600 text-white rounded hover:bg-red-700"
+      >
+        {loading ? "Processing..." : "Reset School Year Attendance"}
+      </button>
     </div>
   );
 }
