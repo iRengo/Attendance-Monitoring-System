@@ -27,13 +27,22 @@ export default function ProfileInfo({ studentData, loading }) {
 
   // ✅ Fields to display (without first, middle, last name)
   const fields = [
-    { label: "Student ID", value: studentData.studentId || "—" },
+    { 
+      label: "Student ID", 
+      value: studentData.studentId 
+             ? String(studentData.studentId) 
+             : studentData.student_id 
+             ? String(studentData.student_id) 
+             : "—" 
+    },
     { label: "Section", value: studentData.section || "—" },
     { label: "Grade Level", value: studentData.gradelevel || "—" },
     { label: "Personal Email", value: studentData.personal_email || "—" },
     { label: "Guardian Name", value: studentData.guardianname || "—" },
     { label: "Guardian Contact", value: studentData.guardiancontact || "—" },
   ];
+  
+  
 
   return (
     <div className="lg:col-span-2 bg-white shadow-md rounded-xl p-8 border border-gray-200">

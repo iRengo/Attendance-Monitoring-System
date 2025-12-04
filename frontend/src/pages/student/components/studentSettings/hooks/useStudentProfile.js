@@ -29,7 +29,8 @@ export default function useStudentProfile() {
             firstname: data.firstname || "",
             middlename: data.middlename || "",
             lastname: data.lastname || "",
-            studentId: data.studentId?.toString() || "", // convert number to string
+            studentId: data.studentId?.toString() || data.student_id?.toString() || "", // <-- map both
+            student_id: data.student_id?.toString() || data.studentId?.toString() || "", // <-- keep original too
             section: data.section || "",
             gradelevel: data.gradelevel || "",
             personal_email: data.personal_email || "",
@@ -38,7 +39,8 @@ export default function useStudentProfile() {
             school_email: data.school_email || data.email || "",
             profilePic: data.profilePicUrl || "",
           });
-        } else {
+        }
+         else {
           toast.error("Student record not found!");
         }
       } catch (e) {

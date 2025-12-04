@@ -86,13 +86,24 @@ export default function ForgotPassword() {
           return;
         }
 
-        const q = query(collection(db, "students"), where("studentId", "==", studentId.trim()));
-        const snaps = await getDocs(q);
-        if (snaps.empty) {
-          setFieldError("Student number not found.");
-          setSubmitting(false);
-          return;
-        }
+        // Try studentId first
+let snaps = await getDocs(
+  query(collection(db, "students"), where("studentId", "==", studentId.trim()))
+);
+
+// Fallback to student_id if no match
+if (snaps.empty) {
+  snaps = await getDocs(
+    query(collection(db, "students"), where("student_id", "==", studentId.trim()))
+  );
+}
+
+if (snaps.empty) {
+  setFieldError("Student number not found.");
+  setSubmitting(false);
+  return;
+}
+
 
         const snap = snaps.docs[0];
         const studentDoc = { id: snap.id, ...snap.data() };
@@ -108,7 +119,7 @@ export default function ForgotPassword() {
           token,
           role: "student",
           userDocId: snap.id,
-          studentId: studentDoc.studentId || null,
+          studentId: studentDoc.studentId || studentDoc.student_id || null,
           personalEmail,
           authEmail: studentDoc.school_email || personalEmail,
           createdAt: serverTimestamp(),
