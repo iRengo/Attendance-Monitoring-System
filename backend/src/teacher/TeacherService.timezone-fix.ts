@@ -1,33 +1,37 @@
 import { DateTime } from "luxon";
 import { Timestamp } from "firebase-admin/firestore";
 
-/** Parse a time string into a Firestore Timestamp anchored to a specific timezone.
- *  Accepts "HH:mm" or "h:mm AM/PM" or ISO datetimes. Defaults to Asia/Manila.
- */
 export function parseTimeToTimestampZone(
   timeStr?: string,
   dateStr?: string,
   zone = process.env.SCHOOL_TIMEZONE ?? "Asia/Manila"
 ): Timestamp | null {
-  if (!timeStr || typeof timeStr !== "string") return null;
+  if (!timeStr) return null;
 
   const anchorDate = dateStr ?? DateTime.now().setZone(zone).toFormat("yyyy-MM-dd");
 
-  // Parse "HH:mm" or "h:mm a" explicitly in the target zone
-  let dt = DateTime.fromFormat(`${anchorDate} ${timeStr}`, "yyyy-MM-dd H:mm", { zone });
-  if (!dt.isValid) {
-    dt = DateTime.fromFormat(`${anchorDate} ${timeStr}`, "yyyy-MM-dd h:mm a", { zone });
+  // Try multiple formats
+  const formats = ["H:mm", "HH:mm", "h:mm a", "hh:mm a"];
+  let dt: DateTime | null = null;
+
+  for (const fmt of formats) {
+    const parsed = DateTime.fromFormat(`${anchorDate} ${timeStr}`, `yyyy-MM-dd ${fmt}`, { zone });
+    if (parsed.isValid) {
+      dt = parsed;
+      break;
+    }
   }
 
-  // Fallback: ISO time
-  if (!dt.isValid) {
+  // Fallback to ISO if plain time formats fail
+  if (!dt || !dt.isValid) {
     const maybeTime = DateTime.fromISO(timeStr, { zone });
     if (maybeTime.isValid) {
+      const [year, month, day] = anchorDate.split("-").map(Number);
       dt = DateTime.fromObject(
         {
-          year: Number(anchorDate.slice(0, 4)),
-          month: Number(anchorDate.slice(5, 7)),
-          day: Number(anchorDate.slice(8, 10)),
+          year,
+          month,
+          day,
           hour: maybeTime.hour,
           minute: maybeTime.minute,
         },
@@ -36,9 +40,8 @@ export function parseTimeToTimestampZone(
     }
   }
 
-  if (!dt.isValid) return null;
+  if (!dt || !dt.isValid) return null;
 
-  // Make sure the JS Date we pass to Firestore is in **UTC**
   return Timestamp.fromDate(dt.toUTC().toJSDate());
 }
 
