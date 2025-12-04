@@ -13,13 +13,13 @@ export function parseTimeToTimestampZone(
 
   const anchorDate = dateStr ?? DateTime.now().setZone(zone).toFormat("yyyy-MM-dd");
 
-  // Try common formats: "H:mm" (24h) then "h:mm a" (12h)
+  // Parse "HH:mm" or "h:mm a" explicitly in the target zone
   let dt = DateTime.fromFormat(`${anchorDate} ${timeStr}`, "yyyy-MM-dd H:mm", { zone });
   if (!dt.isValid) {
     dt = DateTime.fromFormat(`${anchorDate} ${timeStr}`, "yyyy-MM-dd h:mm a", { zone });
   }
 
-  // Fallback: try parsing ISO/time portion
+  // Fallback: ISO time
   if (!dt.isValid) {
     const maybeTime = DateTime.fromISO(timeStr, { zone });
     if (maybeTime.isValid) {
@@ -37,7 +37,9 @@ export function parseTimeToTimestampZone(
   }
 
   if (!dt.isValid) return null;
-  return Timestamp.fromDate(dt.toJSDate());
+
+  // Make sure the JS Date we pass to Firestore is in **UTC**
+  return Timestamp.fromDate(dt.toUTC().toJSDate());
 }
 
 export function buildClassDocWithZone(data: any, zone = process.env.SCHOOL_TIMEZONE ?? "Asia/Manila") {
