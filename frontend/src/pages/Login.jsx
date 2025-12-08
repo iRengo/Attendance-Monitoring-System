@@ -463,6 +463,30 @@ export default function Login() {
                 </div>
               </div>
 
+              {/* Mobile swipe handle below header (visual only) */}
+              <div className="md:hidden w-full">
+                <div className="w-full px-6 -mt-2">
+                  <div className="h-12 flex items-center justify-center relative">
+                    <div className="w-44 h-8 bg-gradient-to-b from-[#1f5b86] to-[#2b79a6] rounded-full flex items-center justify-center text-white text-xs font-semibold shadow-inner">
+                      Announcements
+                    </div>
+
+                    {/* Animated swipe indicator (chevrons) pointing down */}
+                    <motion.div
+                      className="absolute -bottom-0 flex flex-col items-center gap-0 pointer-events-none"
+                      aria-hidden
+                      animate={{ y: [0, 6, 0] }}
+                      transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                    >
+                      <svg className="w-4 h-4 text-white/90" viewBox="0 0 24 24" fill="none">
+                        <path d="M6 9l6 6 6-6" stroke="black" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+
+                    </motion.div>
+                  </div>
+                </div>
+              </div>
+
               {/* LOGIN FORM centered */}
               <div className="flex-1 flex items-start justify-center py-10 md:py-40">
                 <div className="bg-white border border-[#5F75AF] rounded-lg p-6 w-full max-w-sm shadow-lg mx-6">
