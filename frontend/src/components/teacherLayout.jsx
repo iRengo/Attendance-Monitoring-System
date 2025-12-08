@@ -509,14 +509,21 @@ export default function TeacherLayout({ title, children }) {
 
 
         {/* CONTENT */}
-        <div className="flex-1 overflow-y-auto bg-gray-50 mt-12 md:mt-16 p-4 md:p-6">
-          {/* Temp password warning */}
-          {isTempPassword && (
-            <div className="mb-4 rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-              Your account is using a temporary password. Please update your password to secure your account.
-            </div>
-          )}
+<div className="flex-1 overflow-y-auto bg-gray-50 mt-12 md:mt-16 p-4 md:p-6">
+  {/* Temp password warning */}
+  {isTempPassword && (
+    <div className="mb-4 rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+      Your account is using a temporary password.{" "}
+      <Link
+        to="/teacher/settings"
+        className="!underline text-blue-600 hover:text-blue-800"
 
+      >
+        Click here to update your password.
+      </Link>
+    </div>
+  )}
+  
           {/* Breadcrumbs */}
           <div className="w-full flex justify-end mb-4">
             <div className="text-sm text-gray-500 flex gap-1">
