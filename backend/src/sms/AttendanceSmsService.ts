@@ -14,6 +14,21 @@ export class AttendanceSmsService {
     this.listenToAttendanceSessions();
   }
 
+  // 🔹 FORMATTER FOR TEXT MESSAGE
+  private formatDateTime(dateString: string): string {
+    const date = new Date(dateString);
+
+    return date.toLocaleString("en-US", {
+      timeZone: "Asia/Manila",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    }).replace(",", " |");
+  }
+
   private listenToAttendanceSessions() {
     this.firestore
       .collection('attendance_sessions')
@@ -72,7 +87,11 @@ export class AttendanceSmsService {
         }
       }
 
-      const message = `Hello ${student.guardianname}, your child ${student.firstname} is ${status} today in ${subjectName} at ${timeStarted}.`;
+      // 🔹 FORMAT THE TIME STARTED (String from Firestore)
+      const formattedTime = this.formatDateTime(timeStarted);
+
+      // 🔹 UPDATED MESSAGE USING FORMATTED TIME
+      const message = `Hello ${student.guardianname}, your child ${student.firstname} is ${status} today in ${subjectName} at ${formattedTime}.`;
 
       try {
         await this.smsService.sendSMS(student.guardiancontact, message);
