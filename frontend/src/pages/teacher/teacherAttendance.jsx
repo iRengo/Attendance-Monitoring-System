@@ -11,24 +11,24 @@ import SessionsGroupedList from "./components/teacherAttendance/SessionsGroupedL
 import { toDateKeyAndLabel, formatDateTime, parseDate } from "./components/teacherAttendance/hooks/utils/date";
 
 export default function TeacherAttendance() {
-  // Auth-driven teacherId
   const teacherId = useTeacherId();
 
   // UI state
+  const [selectedSchoolYear, setSelectedSchoolYear] = useState(""); // "" = Current Year
   const [selectedClassId, setSelectedClassId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
   // Data: classes
   const { classes, loadingClasses, error, setError } = useTeacherClasses(teacherId);
 
-  // Data: attendance sessions (realtime) for selected class
+  // Data: attendance sessions for selected class
   const { rawSessions, loadingAttendance } = useClassAttendance(
     teacherId,
     selectedClassId,
     setError
   );
 
-  // Build a set of all studentIds (document IDs) to fetch names/IDs for
+  // Build a set of all studentIds to fetch names/IDs
   const allStudentDocIds = useMemo(() => {
     const ids = new Set();
     for (const session of rawSessions || []) {
@@ -44,10 +44,8 @@ export default function TeacherAttendance() {
     return Array.from(ids);
   }, [rawSessions]);
 
-  // Directory cache: student display name + display ID
   const { studentNameCache, studentIdFieldCache } = useStudentDirectory(allStudentDocIds);
 
-  // Group sessions by calendar date (based on timeStarted), and filter entries via search
   const groupedSessions = useMemo(() => {
     const map = new Map();
     const term = String(searchTerm || "").toLowerCase().trim();
@@ -81,7 +79,7 @@ export default function TeacherAttendance() {
       if (a.key === "unknown" && b.key === "unknown") return 0;
       if (a.key === "unknown") return 1;
       if (b.key === "unknown") return -1;
-      return b.key.localeCompare(a.key);
+      return a.key.localeCompare(b.key);
     });
 
     groups.forEach((g) => {
@@ -91,10 +89,10 @@ export default function TeacherAttendance() {
           new Date(a.timeStarted || 0).getTime()
       );
     });
+
     return groups;
   }, [rawSessions, searchTerm, studentNameCache, studentIdFieldCache]);
 
-  // Export CSV (use studentId field instead of doc id for Student ID column)
   const exportToCSV = useCallback(() => {
     if (!selectedClassId) return;
     const headers = ["Date", "Started", "Ended", "Student ID", "Student Name", "Status", "Time Logged"];
@@ -150,7 +148,6 @@ export default function TeacherAttendance() {
     return s;
   }
 
-  // Derived stats (footer)
   const classStats = useMemo(() => {
     if (!selectedClassId) return { total: 0, minutes: 0 };
     let minutes = 0;
@@ -184,15 +181,23 @@ export default function TeacherAttendance() {
 
         {/* Filters + Export */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+          <div className="flex flex-row flex-wrap gap-4 w-full md:w-auto">
+            {/* Class Selector (includes school year) */}
             <ClassSelector
               classes={classes}
               selectedClassId={selectedClassId}
-              onChange={setSelectedClassId}
+              onClassChange={setSelectedClassId}
+              selectedSchoolYear={selectedSchoolYear}
+              onSchoolYearChange={setSelectedSchoolYear}
             />
-            <SearchBox searchTerm={searchTerm} onChange={setSearchTerm} />
+
+            {/* Search Box */}
+            <div className="flex-grow min-w-[200px]">
+              <SearchBox searchTerm={searchTerm} onChange={setSearchTerm} />
+            </div>
           </div>
 
+          {/* Toolbar */}
           <Toolbar
             canRefresh={!!selectedClassId && !loadingAttendance}
             onRefresh={() => setSelectedClassId((prev) => prev)}
@@ -200,6 +205,7 @@ export default function TeacherAttendance() {
             onExport={exportToCSV}
           />
         </div>
+
 
         {/* Error banner */}
         {error && (
@@ -217,7 +223,7 @@ export default function TeacherAttendance() {
           selectedClassId={selectedClassId}
         />
 
-        {/* Footer stats for context */}
+        {/* Footer stats */}
         {selectedClassId && (
           <div className="flex gap-3 text-xs text-gray-600">
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-gray-200 bg-white">

@@ -475,15 +475,6 @@ export default function BackupButton({
       >
         {loadingFix ? "Working..." : "Fix Timestamps & JSON Strings"}
       </button>
-
-      <div className="text-xs text-gray-500">
-        Notes:
-        <ul className="list-disc pl-5">
-          <li>Fixer does a dry-run first and shows sample doc IDs; confirm to apply writes.</li>
-          <li>Backup first. Use the "Backup All" button.</li>
-          <li>For very large collections use a server-side migration (firebase-admin) instead of this UI.</li>
-        </ul>
-      </div>
     </div>
   );
 }

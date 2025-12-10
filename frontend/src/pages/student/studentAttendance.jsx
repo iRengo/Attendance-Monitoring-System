@@ -12,20 +12,24 @@ export default function StudentAttendance() {
     loading,
     stats,
     subjectOptions,
+    schoolYearOptions,       // ← add this
     paginatedRows,
     filteredRows,
     totalPages,
     page,
     statusFilter,
     subjectFilter,
+    schoolYearFilter,        // ← add this
     setStatusFilter,
     setSubjectFilter,
+    setSchoolYearFilter,     // ← add this
     setPage,
     resetFilters,
     exportCSV,
     exportPDF,
     exporting,
   } = useStudentAttendanceData(10);
+  
 
   return (
     <StudentLayout title="Attendance">
@@ -46,18 +50,23 @@ export default function StudentAttendance() {
             </div>
 
             <div className="min-w-0">
-              <FiltersBar
-                statusFilter={statusFilter}
-                subjectFilter={subjectFilter}
-                subjectOptions={subjectOptions}
-                setStatusFilter={setStatusFilter}
-                setSubjectFilter={setSubjectFilter}
-                resetFilters={resetFilters}
-                exportCSV={exportCSV}
-                exportPDF={exportPDF}
-                exporting={exporting}
-                setPage={setPage}
-              />
+            <FiltersBar
+  statusFilter={statusFilter}
+  subjectFilter={subjectFilter}
+  schoolYearFilter={schoolYearFilter}
+  subjectOptions={subjectOptions}
+  schoolYearOptions={schoolYearOptions}
+  setStatusFilter={setStatusFilter}
+  setSubjectFilter={setSubjectFilter}
+  setSchoolYearFilter={setSchoolYearFilter}
+  resetFilters={resetFilters}
+  exportCSV={exportCSV}
+  exportPDF={exportPDF}
+  exporting={exporting}
+  setPage={setPage}
+/>
+
+
             </div>
 
             <div className="min-w-0">

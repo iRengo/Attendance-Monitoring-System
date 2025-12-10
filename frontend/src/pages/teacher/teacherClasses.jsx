@@ -20,6 +20,8 @@ export default function CurrentClasses() {
   const [dropdownOpenId, setDropdownOpenId] = useState(null);
   const [activeTab, setActiveTab] = useState("people"); // default to people
   const [preview, setPreview] = useState(null);
+  const [viewArchived, setViewArchived] = useState(false);
+
 
   const {
     classes,
@@ -39,6 +41,10 @@ export default function CurrentClasses() {
     setIsEditMode,
     setClasses,
   } = useClasses(teacherId);
+
+  const activeClasses = classes.filter((cls) => cls.stats !== "archived");
+  const archivedClasses = classes.filter((cls) => cls.stats === "archived");
+
 
   const { posts, refreshPosts, addPostToState } = usePosts(teacherId, selectedClass);
   const { students, refreshStudents } = useStudents(teacherId, selectedClass);
@@ -158,39 +164,77 @@ export default function CurrentClasses() {
   return (
     <TeacherLayout title="Current Classes">
       <div className="min-h-screen bg-gray-50 p-10">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-10 gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-10">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800 tracking-tight">Current Classes</h1>
+          <h1 className="text-3xl font-bold text-gray-800 tracking-tight">
+            {viewArchived ? "Archived Classes" : "Current Classes"}
+          </h1>
             <p className="text-gray-500 text-sm">Manage your active classes and view enrolled students.</p>
           </div>
 
-          <button
-            onClick={onAddClassClick}
-            className="flex items-center gap-2 px-5 py-2 bg-[#3498db] text-white rounded-lg text-sm font-medium hover:bg-[#2f89ca] transition"
-          >
-            <Plus size={18} /> Add Class
-          </button>
+          <div className="flex flex-wrap gap-2">
+  {!viewArchived && (
+    <button
+      onClick={onAddClassClick}
+      className="flex items-center gap-2 px-5 py-2 bg-[#3498db] text-white rounded-lg text-sm font-medium hover:bg-[#2f89ca] transition"
+    >
+      <Plus size={18} /> Add Class
+    </button>
+  )}
+
+  {archivedClasses.length > 0 && (
+    <button
+      onClick={() => setViewArchived(!viewArchived)}
+      className="px-5 py-2 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-900 transition"
+    >
+      {viewArchived ? "Back to Active Classes" : "View Archived Classes"}
+    </button>
+  )}
+</div>
+
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          {classes.length === 0 ? (
-            <p className="text-gray-400 text-center col-span-full">No classes yet.</p>
-          ) : (
-            classes.map((cls) => (
-              <ClassCard
-                key={cls.id}
-                cls={cls}
-                studentCount={studentCounts[cls.id] ?? 0}
-                dropdownOpenId={dropdownOpenId}
-                setDropdownOpenId={setDropdownOpenId}
-                handleEditClass={handleEditClass}
-                handleDeleteClass={handleDeleteClass}
-                handleCopyLink={handleCopyLink}
-                setSelectedClass={onViewClass}
-              />
-            ))
-          )}
-        </div>
+
+        {!viewArchived ? (
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+    {activeClasses.length === 0 ? (
+      <p className="text-gray-400 text-center col-span-full">No active classes yet.</p>
+    ) : (
+      activeClasses.map((cls) => (
+        <ClassCard
+          key={cls.id}
+          cls={cls}
+          studentCount={studentCounts[cls.id] ?? 0}
+          dropdownOpenId={dropdownOpenId}
+          setDropdownOpenId={setDropdownOpenId}
+          handleEditClass={handleEditClass}
+          handleDeleteClass={handleDeleteClass}
+          handleCopyLink={handleCopyLink}
+          setSelectedClass={onViewClass}
+        />
+      ))
+    )}
+  </div>
+) : (
+  <div className="min-h-screen">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+      {archivedClasses.map((cls) => (
+        <ClassCard
+          key={cls.id}
+          cls={cls}
+          studentCount={studentCounts[cls.id] ?? 0}
+          dropdownOpenId={dropdownOpenId}
+          setDropdownOpenId={setDropdownOpenId}
+          handleEditClass={handleEditClass}
+          handleDeleteClass={handleDeleteClass}
+          handleCopyLink={handleCopyLink}
+          setSelectedClass={onViewClass}
+        />
+      ))}
+    </div>
+  </div>
+)}
+
       </div>
 
       {showModal && (

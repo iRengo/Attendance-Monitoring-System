@@ -61,23 +61,38 @@ function useDashboardData() {
 
         for (const classDoc of classSnap.docs) {
           const classData = classDoc.data() || {};
+        
+          // 🚀 Only include current school year classes
+          // rule: NO schoolYear AND NO archived stats
+          const isArchived = classData.stats === "archived";
+          const hasSchoolYear = !!classData.schoolYear;
+        
+          if (isArchived || hasSchoolYear) {
+            // skip archived & old school years
+            continue;
+          }
+        
           const cls = { id: classDoc.id, ...classData };
           classList.push(cls);
-
+        
+          // SUBJECT COUNT (only current classes)
           if (classData.subjectName) {
             subjectSet.add(String(classData.subjectName).trim().toLowerCase());
           }
-
+        
+          // STUDENTS COUNT (only current classes)
           const studentsRef = collection(db, "classes", classDoc.id, "students");
           const studentsSnap = await getDocs(studentsRef);
           studentsSnap.docs.forEach((s) => studentSet.add(s.id));
         }
+        
 
         if (!isActive) return;
 
-        setTotalClasses(classSnap.size);
-        setTotalSubjects(subjectSet.size);
-        setTotalStudents(studentSet.size);
+        setTotalClasses(classList.length); // only current SY
+        setTotalSubjects(subjectSet.size); // only subjects from current classes
+        setTotalStudents(studentSet.size); // only students from current classes
+
 
         const nextClass = getNextUpcomingClass(classList);
         setIncomingClass(nextClass);

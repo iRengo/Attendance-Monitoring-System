@@ -22,8 +22,10 @@ export default function useStudentAttendanceData(pageSize = 10) {
   const [teachersCache, setTeachersCache] = useState({});
 
   // Filters
-  const [statusFilter, setStatusFilter] = useState(""); // "", "present", "absent", "late"
-  const [subjectFilter, setSubjectFilter] = useState("");
+  // Filters
+const [statusFilter, setStatusFilter] = useState(""); // "", "present", "absent", "late"
+const [subjectFilter, setSubjectFilter] = useState("");
+const [schoolYearFilter, setSchoolYearFilter] = useState("Current Year"); // ← default to Current Year
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -48,7 +50,7 @@ export default function useStudentAttendanceData(pageSize = 10) {
         const snap = await getDoc(doc(db, "students", studentId));
         if (snap.exists()) {
           const data = snap.data();
-            const fullName = `${data.firstname || data.firstName || ""} ${data.middlename || data.middleName || ""} ${data.lastname || data.lastName || ""}`
+          const fullName = `${data.firstname || data.firstName || ""} ${data.middlename || data.middleName || ""} ${data.lastname || data.lastName || ""}`
             .replace(/\s+/g, " ")
             .trim();
           setStudentName(fullName || "Student");
@@ -74,11 +76,10 @@ export default function useStudentAttendanceData(pageSize = 10) {
         setAttendance(rows);
         setLoading(false);
 
-        // gather ids
         const classIds = [...new Set(rows.map((r) => r.classId).filter(Boolean))];
         const teacherIds = [...new Set(rows.map((r) => r.teacherId).filter(Boolean))];
 
-        // fetch class docs
+        // Fetch classes
         const newClasses = {};
         await Promise.all(
           classIds.map(async (cid) => {
@@ -92,11 +93,9 @@ export default function useStudentAttendanceData(pageSize = 10) {
             }
           })
         );
-        if (Object.keys(newClasses).length) {
-          setClassesCache((prev) => ({ ...prev, ...newClasses }));
-        }
+        if (Object.keys(newClasses).length) setClassesCache((prev) => ({ ...prev, ...newClasses }));
 
-        // fetch teacher docs
+        // Fetch teachers
         const newTeachers = {};
         await Promise.all(
           teacherIds.map(async (tid) => {
@@ -118,9 +117,7 @@ export default function useStudentAttendanceData(pageSize = 10) {
             }
           })
         );
-        if (Object.keys(newTeachers).length) {
-          setTeachersCache((prev) => ({ ...prev, ...newTeachers }));
-        }
+        if (Object.keys(newTeachers).length) setTeachersCache((prev) => ({ ...prev, ...newTeachers }));
       },
       (err) => {
         console.error("Attendance snapshot error:", err);
@@ -131,7 +128,7 @@ export default function useStudentAttendanceData(pageSize = 10) {
     return () => unsub();
   }, [studentId, classesCache, teachersCache]);
 
-  // Enrich
+  // Enrich rows
   const enrichedRows = useMemo(() => {
     return attendance.map((row) => {
       const classMeta = classesCache[row.classId] || {};
@@ -144,22 +141,67 @@ export default function useStudentAttendanceData(pageSize = 10) {
   // Subject options
   const subjectOptions = useMemo(() => {
     const set = new Set();
+  
     enrichedRows.forEach((r) => {
-      if (r.classMeta?.subjectName) set.add(r.classMeta.subjectName);
+      const rowSchoolYear = r.classMeta?.schoolYear || "Current Year";
+  
+      // Include only if matches current schoolYearFilter
+      if (schoolYearFilter === "Current Year" && !r.classMeta?.schoolYear) {
+        if (r.classMeta?.subjectName) set.add(r.classMeta.subjectName);
+      } else if (schoolYearFilter !== "Current Year" && r.classMeta?.schoolYear === schoolYearFilter) {
+        if (r.classMeta?.subjectName) set.add(r.classMeta.subjectName);
+      }
     });
+  
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [enrichedRows]);
+  }, [enrichedRows, schoolYearFilter]);
+  
 
+  // School Year options
+  const schoolYearOptions = useMemo(() => {
+    const set = new Set();
+    let hasCurrentYear = false;
+  
+    enrichedRows.forEach((r) => {
+      if (r.classMeta?.schoolYear) {
+        set.add(r.classMeta.schoolYear);
+      } else {
+        hasCurrentYear = true; // mark that we have records with no schoolYear
+      }
+    });
+  
+    const years = Array.from(set).sort().reverse();
+    if (hasCurrentYear) years.unshift("Current Year"); // only add "Current Year" if there are records with no schoolYear
+    return years;
+  }, [enrichedRows]);
+  
   // Filter + sort
   const filteredRows = useMemo(() => {
     return enrichedRows
       .filter((row) => {
+        // Status filter
         if (statusFilter && row.status !== statusFilter) return false;
+  
+        // Subject filter
         if (subjectFilter && (row.classMeta?.subjectName || "") !== subjectFilter) return false;
+  
+        // School Year filter
+        if (schoolYearFilter) {
+          if (schoolYearFilter === "Current Year") {
+            // Only include rows with NO schoolYear
+            if (row.classMeta?.schoolYear) return false;
+          } else {
+            // Only include rows with a matching schoolYear
+            if (row.classMeta?.schoolYear !== schoolYearFilter) return false;
+          }
+        }
+  
         return true;
       })
       .sort((a, b) => (b.dateObj?.getTime() || 0) - (a.dateObj?.getTime() || 0));
-  }, [enrichedRows, statusFilter, subjectFilter]);
+  }, [enrichedRows, statusFilter, subjectFilter, schoolYearFilter]);
+  
+  
 
   // Stats
   const stats = useMemo(() => {
@@ -181,16 +223,18 @@ export default function useStudentAttendanceData(pageSize = 10) {
   const resetFilters = () => {
     setStatusFilter("");
     setSubjectFilter("");
+    setSchoolYearFilter("");
     setPage(1);
   };
 
   // CSV Export
   const exportCSV = () => {
-    const header = ["Date", "Status", "Subject", "Class ID", "Teacher", "Time Logged"];
+    const header = ["Date", "Status", "Subject", "School Year", "Class ID", "Teacher", "Time Logged"];
     const rows = filteredRows.map((r) => [
       formatDate(r.dateObj),
       r.status || "N/A",
       r.classMeta?.subjectName || "N/A",
+      r.classMeta?.schoolYear || "Current Year",
       r.classId || "N/A",
       r.teacherName || "N/A",
       r.timeLogged || "—",
@@ -209,9 +253,7 @@ export default function useStudentAttendanceData(pageSize = 10) {
   function escapeCSV(value) {
     if (value == null) return "";
     const str = String(value);
-    if (/[\",\n]/.test(str)) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
+    if (/[\",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
     return str;
   }
 
@@ -234,14 +276,13 @@ export default function useStudentAttendanceData(pageSize = 10) {
         formatDate(r.dateObj),
         r.status || "N/A",
         r.classMeta?.subjectName || "N/A",
+        r.classMeta?.schoolYear || "Current Year",
         r.teacherName || "N/A",
-        r.timeLogged
-          ? formatTime(parseAttendanceDate(r.timeLogged))
-          : "—",
+        r.timeLogged ? formatTime(parseAttendanceDate(r.timeLogged)) : "—",
       ]);
 
       autoTable(docPDF, {
-        head: [["Date", "Status", "Subject", "Teacher", "Time Logged"]],
+        head: [["Date", "Status", "Subject", "School Year", "Teacher", "Time Logged"]],
         body: tableRows,
         startY: 38,
         theme: "striped",
@@ -271,6 +312,7 @@ export default function useStudentAttendanceData(pageSize = 10) {
     // Data
     stats,
     subjectOptions,
+    schoolYearOptions,
     paginatedRows,
     filteredRows,
     totalPages,
@@ -279,10 +321,12 @@ export default function useStudentAttendanceData(pageSize = 10) {
     // Filters
     statusFilter,
     subjectFilter,
+    schoolYearFilter,
 
     // Actions
     setStatusFilter,
     setSubjectFilter,
+    setSchoolYearFilter,
     setPage,
     resetFilters,
     exportCSV,
