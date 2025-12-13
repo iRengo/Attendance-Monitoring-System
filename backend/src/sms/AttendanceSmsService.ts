@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SmsService } from './sms.service';
-import { Firestore } from '@google-cloud/firestore';
+import { Firestore, FieldValue } from '@google-cloud/firestore';
 
 @Injectable()
 export class AttendanceSmsService {
@@ -9,121 +9,111 @@ export class AttendanceSmsService {
 
   constructor(private readonly smsService: SmsService) {
     this.firestore = new Firestore();
-
-    // Start listening to attendance_sessions in real-time
     this.listenToAttendanceSessions();
   }
 
-  // 🔹 FORMATTER FOR TEXT MESSAGE
+  // 🔹 Date formatter (Manila time)
   private formatDateTime(dateString: string): string {
-    const date = new Date(dateString);
-
-    return date.toLocaleString("en-US", {
-      timeZone: "Asia/Manila",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true
-    }).replace(",", " |");
+    return new Date(dateString).toLocaleString('en-US', {
+      timeZone: 'Asia/Manila',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).replace(',', ' |');
   }
 
+  // ✅ REAL-TIME LISTENER (NO PM2 WATCH NEEDED)
   private listenToAttendanceSessions() {
     this.firestore
       .collection('attendance_sessions')
       .onSnapshot(snapshot => {
-        snapshot.docChanges().forEach(async change => {
-          if (change.type !== 'added') return;
-  
+        snapshot.docChanges().forEach(change => {
+          if (change.type !== 'modified') return;
+
           const sessionId = change.doc.id;
           const sessionData = change.doc.data();
-  
-          if (!sessionData?.date) return;
-  
-          // ❌ prevent duplicate SMS
-          if (sessionData.smsSent === true) {
-            this.logger.log(`SMS already sent for session ${sessionId}`);
-            return;
-          }
-  
-          // ✅ Manila date comparison (YYYY-MM-DD)
-          const sessionDate = new Date(sessionData.date)
-            .toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-  
-          const todayDate = new Date()
-            .toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-  
-          if (sessionDate !== todayDate) {
-            this.logger.log(`Session ${sessionId} is not today, skipping`);
-            return;
-          }
-  
-          this.logger.log(`📩 Sending SMS for session ${sessionId}`);
-  
-          await this.sendAttendanceNotifications(sessionId);
-  
-          // ✅ Mark as sent
-          await this.firestore
-            .collection('attendance_sessions')
-            .doc(sessionId)
-            .update({ smsSent: true });
+
+          if (!sessionData) return;
+
+          this.handleRealtimeAttendance(sessionId, sessionData);
         });
       });
-  }  
+  }
 
-  async sendAttendanceNotifications(sessionId: string) {
-    const sessionDoc = await this.firestore
-      .collection('attendance_sessions')
-      .doc(sessionId)
-      .get();
+  // ✅ Handle student-by-student SMS
+  private async handleRealtimeAttendance(sessionId: string, sessionData: any) {
+    const {
+      studentsPresent = [],
+      studentsAbsent = [],
+      smsSentPresent = [],
+      smsSentAbsent = [],
+      classId,
+      timeStarted,
+    } = sessionData;
 
-    if (!sessionDoc.exists) {
-      this.logger.warn(`Attendance session ${sessionId} not found`);
-      return;
+    // 🔹 Fetch subject name once
+    let subjectName = classId;
+    if (classId) {
+      const classDoc = await this.firestore.collection('classes').doc(classId).get();
+      if (classDoc.exists) {
+        subjectName = classDoc.data()?.subjectName || classId;
+      }
     }
 
-    const sessionData = sessionDoc.data();
-    if (!sessionData) return;
+    const formattedTime = this.formatDateTime(timeStarted);
 
-    const { studentsPresent = [], studentsAbsent = [], classId, date: sessionDateStr, timeStarted } = sessionData;
-
-    const sendSMS = async (studentId: string, status: string) => {
-      const studentDoc = await this.firestore.collection('students').doc(studentId).get();
-      if (!studentDoc.exists) return;
-
-      const student = studentDoc.data();
-      if (!student?.guardiancontact) return;
-
-      // Get class/subject name
-      let subjectName = classId;
-      if (classId) {
-        const classDoc = await this.firestore.collection('classes').doc(classId).get();
-        if (classDoc.exists) {
-          subjectName = classDoc.data()?.subjectName || classId;
-        }
-      }
-
-      // 🔹 FORMAT THE TIME STARTED (String from Firestore)
-      const formattedTime = this.formatDateTime(timeStarted);
-
-      // 🔹 UPDATED MESSAGE USING FORMATTED TIME
-      const message = `Hello ${student.guardianname}, your child ${student.firstname} is ${status} today in ${subjectName} at ${formattedTime}.`;
-
-      try {
-        await this.smsService.sendSMS(student.guardiancontact, message);
-        this.logger.log(`SMS sent to ${student.guardiancontact} for ${student.firstname}`);
-      } catch (err) {
-        this.logger.error(`Failed to send SMS to ${student.guardiancontact}: ${err.message}`);
-      }
-    };
-
+    // ✅ PRESENT STUDENTS
     for (const studentId of studentsPresent) {
-      await sendSMS(studentId, 'present');
+      if (smsSentPresent.includes(studentId)) continue;
+
+      await this.sendStudentSMS(studentId, 'present', subjectName, formattedTime);
+
+      await this.firestore
+        .collection('attendance_sessions')
+        .doc(sessionId)
+        .update({
+          smsSentPresent: FieldValue.arrayUnion(studentId),
+        });
     }
 
+    // ✅ ABSENT STUDENTS
     for (const studentId of studentsAbsent) {
-      await sendSMS(studentId, 'absent');
+      if (smsSentAbsent.includes(studentId)) continue;
+
+      await this.sendStudentSMS(studentId, 'absent', subjectName, formattedTime);
+
+      await this.firestore
+        .collection('attendance_sessions')
+        .doc(sessionId)
+        .update({
+          smsSentAbsent: FieldValue.arrayUnion(studentId),
+        });
+    }
+  }
+
+  // 🔹 Send SMS to guardian
+  private async sendStudentSMS(
+    studentId: string,
+    status: 'present' | 'absent',
+    subjectName: string,
+    formattedTime: string,
+  ) {
+    const studentDoc = await this.firestore.collection('students').doc(studentId).get();
+    if (!studentDoc.exists) return;
+
+    const student = studentDoc.data();
+    if (!student?.guardiancontact) return;
+
+    const message = `Hello ${student.guardianname}, your child ${student.firstname} is ${status} today in ${subjectName} at ${formattedTime}.`;
+
+    try {
+      await this.smsService.sendSMS(student.guardiancontact, message);
+      this.logger.log(`📩 SMS sent to ${student.firstname} (${status})`);
+    } catch (err) {
+      this.logger.error(`SMS failed for ${student.firstname}: ${err.message}`);
     }
   }
 }

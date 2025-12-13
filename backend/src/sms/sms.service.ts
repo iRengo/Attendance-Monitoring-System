@@ -23,8 +23,8 @@ export class SmsService {
       apikey: this.apiKey,
       number: to,
       message,
-      // ❌ REMOVE sendername — causes “Failed” status
     };
+    
 
     console.log('Sending Semaphore SMS payload:', payload);
 
