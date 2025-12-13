@@ -33,27 +33,44 @@ export class AttendanceSmsService {
     this.firestore
       .collection('attendance_sessions')
       .onSnapshot(snapshot => {
-        snapshot.docChanges().forEach(change => {
-          if (change.type === 'added') {
-            const sessionData = change.doc.data();
-            if (!sessionData?.date) return;
-
-            const sessionDay = new Date(sessionData.date)
-              .toLocaleString('en-PH', { timeZone: 'Asia/Manila' })
-              .split(',')[0];
-
-            const todayDay = new Date()
-              .toLocaleString('en-PH', { timeZone: 'Asia/Manila' })
-              .split(',')[0];
-
-            if (sessionDay === todayDay) {
-              this.logger.log(`New attendance session today detected: ${change.doc.id}`);
-              this.sendAttendanceNotifications(change.doc.id);
-            }
+        snapshot.docChanges().forEach(async change => {
+          if (change.type !== 'added') return;
+  
+          const sessionId = change.doc.id;
+          const sessionData = change.doc.data();
+  
+          if (!sessionData?.date) return;
+  
+          // ❌ prevent duplicate SMS
+          if (sessionData.smsSent === true) {
+            this.logger.log(`SMS already sent for session ${sessionId}`);
+            return;
           }
+  
+          // ✅ Manila date comparison (YYYY-MM-DD)
+          const sessionDate = new Date(sessionData.date)
+            .toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  
+          const todayDate = new Date()
+            .toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  
+          if (sessionDate !== todayDate) {
+            this.logger.log(`Session ${sessionId} is not today, skipping`);
+            return;
+          }
+  
+          this.logger.log(`📩 Sending SMS for session ${sessionId}`);
+  
+          await this.sendAttendanceNotifications(sessionId);
+  
+          // ✅ Mark as sent
+          await this.firestore
+            .collection('attendance_sessions')
+            .doc(sessionId)
+            .update({ smsSent: true });
         });
       });
-  }
+  }  
 
   async sendAttendanceNotifications(sessionId: string) {
     const sessionDoc = await this.firestore
